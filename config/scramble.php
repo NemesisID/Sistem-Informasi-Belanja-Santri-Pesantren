@@ -61,7 +61,7 @@ return [
         'title' => 'Sistem Informasi Belanja Santri — API',
     ],
 
-    'renderer' => 'elements',
+    'renderer' => 'scalar',
 
     'renderers' => [
         /*

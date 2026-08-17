@@ -18,8 +18,8 @@ class PenarikanController extends Controller
 
     /**
      * Penarikan koin di loket Rumah Koin.
-     * Wajib: foto santri sudah ada (verifikasi identitas), nominal dalam batas 2 hari,
-     * saldo cukup. Semua dalam satu transaksi DB.
+     * Wajib: nominal dalam batas 2 hari, saldo cukup.
+     * Semua dalam satu transaksi DB.
      */
     public function store(PenarikanRequest $request): JsonResponse
     {

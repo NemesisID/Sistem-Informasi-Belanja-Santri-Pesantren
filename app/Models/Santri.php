@@ -79,7 +79,7 @@ class Santri extends Model
             : (string) $this->nis;
 
         $data = [
-            'name'      => 'Wali '.$this->nama,
+            'name'      => $this->nama,
             'username'  => (string) $this->nis,
             'password'  => $rawPassword,
             'role'      => 'wali',

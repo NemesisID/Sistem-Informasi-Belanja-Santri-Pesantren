@@ -145,6 +145,30 @@ class SantriController extends Controller
         return response()->json($report);
     }
 
+    public function importPreview(Request $request): JsonResponse
+    {
+        $request->validate([
+            'file' => ['required', 'file', 'extensions:xlsx,xls,csv'],
+        ]);
+
+        $preview = $this->importer->parsePreview($request->file('file'));
+
+        return response()->json($preview);
+    }
+
+    public function importConfirm(Request $request): JsonResponse
+    {
+        $request->validate([
+            'items' => ['required', 'array'],
+            'items.*.nis' => ['required', 'string'],
+            'items.*.nama' => ['required', 'string'],
+        ]);
+
+        $report = $this->importer->confirmImport($request->input('items'));
+
+        return response()->json($report);
+    }
+
     private function simpanFoto(Request $request, string $nis): string
     {
         return $request->file('foto')->storeAs(

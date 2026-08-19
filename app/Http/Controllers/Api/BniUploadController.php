@@ -77,10 +77,7 @@ class BniUploadController extends Controller
     }
 
     /**
-     * Kredit saldo semua item valid dalam satu transaksi DB (atomik).
-     * Gagal di tengah → rollback total.
-     * Anti double-credit lintas upload: item yang dedup_key-nya sudah dikredit
-     * di upload lain di-skip (ditandai invalid + diterapkan).
+     * Kredit saldo item valid (atau hanya item_ids yang dipilih) dalam satu transaksi DB (atomik).
      */
     public function apply(Request $request, BniUpload $upload): JsonResponse
     {
@@ -90,9 +87,10 @@ class BniUploadController extends Controller
             ]);
         }
 
+        $selectedItemIds = $request->input('item_ids');
         $dikredit = 0;
 
-        DB::transaction(function () use ($upload, $request, &$dikredit) {
+        DB::transaction(function () use ($upload, $request, $selectedItemIds, &$dikredit) {
             // Kunci baris upload agar tidak di-apply bersamaan dua kali
             $locked = BniUpload::whereKey($upload->id)->lockForUpdate()->firstOrFail();
 
@@ -102,7 +100,11 @@ class BniUploadController extends Controller
                 ]);
             }
 
-            $items = $locked->items()->where('status_valid', true)->where('diterapkan', false)->get();
+            $query = $locked->items()->where('status_valid', true)->where('diterapkan', false);
+            if (is_array($selectedItemIds) && count($selectedItemIds) > 0) {
+                $query->whereIn('id', $selectedItemIds);
+            }
+            $items = $query->get();
 
             foreach ($items as $item) {
                 // Cegah double-credit bila transaksi yang sama (journal/key) sudah dikredit di upload lain
@@ -140,6 +142,60 @@ class BniUploadController extends Controller
 
         return response()->json([
             'message' => "Saldo berhasil dikredit dari {$dikredit} item valid.",
+        ]);
+    }
+
+    /** Update item sebelum disimpan (misal perbaiki nominal/nama/santri_id) */
+    public function updateItem(Request $request, BniUpload $upload, BniUploadItem $item): JsonResponse
+    {
+        if ($upload->status !== 'menunggu') {
+            return response()->json(['message' => 'Upload sudah diproses, item tidak dapat diedit.'], 422);
+        }
+
+        $validated = $request->validate([
+            'nama' => ['nullable', 'string', 'max:255'],
+            'nominal' => ['nullable', 'numeric', 'min:1'],
+            'santri_id' => ['nullable', 'exists:santris,id'],
+            'status_valid' => ['nullable', 'boolean'],
+        ]);
+
+        if (isset($validated['santri_id']) && $validated['santri_id']) {
+            $validated['status_valid'] = true;
+            $validated['catatan'] = null;
+        }
+
+        $item->update($validated);
+
+        // Update counts
+        $upload->update([
+            'jumlah_valid' => $upload->items()->where('status_valid', true)->count(),
+            'jumlah_invalid' => $upload->items()->where('status_valid', false)->count(),
+        ]);
+
+        return response()->json([
+            'message' => 'Item berhasil diperbarui.',
+            'item' => $item->load('santri:id,nis,nama'),
+        ]);
+    }
+
+    /** Hapus item dari preview sebelum disimpan */
+    public function destroyItem(BniUpload $upload, BniUploadItem $item): JsonResponse
+    {
+        if ($upload->status !== 'menunggu') {
+            return response()->json(['message' => 'Upload sudah diproses, item tidak dapat dihapus.'], 422);
+        }
+
+        $item->delete();
+
+        // Update counts
+        $upload->update([
+            'jumlah_total' => $upload->items()->count(),
+            'jumlah_valid' => $upload->items()->where('status_valid', true)->count(),
+            'jumlah_invalid' => $upload->items()->where('status_valid', false)->count(),
+        ]);
+
+        return response()->json([
+            'message' => 'Item berhasil dihapus.',
         ]);
     }
 

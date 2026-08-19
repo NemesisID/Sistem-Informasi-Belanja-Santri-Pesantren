@@ -16,6 +16,125 @@ use Carbon\Carbon;
  */
 class SantriImportService
 {
+    /**
+     * Parse Excel dan kembalikan array data santri untuk di-preview/diedit admin sebelum disimpan.
+     */
+    public function parsePreview(UploadedFile $file): array
+    {
+        $path = $file->getRealPath();
+        $reader = new Xlsx();
+        $spreadsheet = $reader->load($path);
+
+        $items = [];
+        $existingNises = Santri::pluck('nis')->flip()->toArray();
+
+        foreach ($spreadsheet->getWorksheetIterator() as $sheet) {
+            $unit = $this->unitDariNamaSheet($sheet->getTitle());
+            $rows = $sheet->toArray();
+
+            // Menggabungkan 5 baris pertama menjadi satu 'super header' per kolom
+            $header = [];
+            for ($i = 0; $i < 5; $i++) {
+                if (!isset($rows[$i])) break;
+                foreach ($rows[$i] as $colIndex => $val) {
+                    $header[$colIndex] = ($header[$colIndex] ?? '') . ' ' . $val;
+                }
+            }
+            $cols = $this->petaKolom($header);
+
+            foreach ($rows as $row) {
+                $nis = $this->bersihkan($row[$cols['nis']] ?? null);
+                if ($nis === null || (string) $nis === '0' || ! ctype_digit((string) $nis)) {
+                    continue;
+                }
+
+                $nama = (string) ($this->bersihkan($row[$cols['nama']] ?? null) ?? '');
+                if (empty($nama)) {
+                    continue;
+                }
+
+                $nisStr = (string) $nis;
+                $items[] = [
+                    'temp_id' => 'tmp_' . $nisStr . '_' . uniqid(),
+                    'nis' => $nisStr,
+                    'nis2' => $this->nullable($row[$cols['nis2']] ?? null) ?? '',
+                    'nama' => $nama,
+                    'tempat_lahir' => $this->nullable($row[$cols['tempat_lahir']] ?? null) ?? '',
+                    'tanggal_lahir' => $this->tanggal($row[$cols['tanggal_lahir']] ?? null) ?? '',
+                    'jenis_kelamin' => strtoupper((string) ($this->bersihkan($row[$cols['jenis_kelamin']] ?? null) ?: 'L')) === 'P' ? 'P' : 'L',
+                    'alamat' => $this->nullable($row[$cols['alamat']] ?? null) ?? '',
+                    'tags' => $this->nullable($row[$cols['tags']] ?? null) ?? '',
+                    'note' => $this->nullable($row[$cols['note']] ?? null) ?? '',
+                    'unit' => $unit,
+                    'va_jajan' => $this->nullable($row[$cols['va_jajan']] ?? null) ?? '',
+                    'status' => 'aktif',
+                    'is_exists' => isset($existingNises[$nisStr]),
+                ];
+            }
+        }
+
+        $spreadsheet->disconnectWorksheets();
+
+        return [
+            'total' => count($items),
+            'items' => $items,
+        ];
+    }
+
+    /**
+     * Simpan data hasil preview/edit santri ke database secara batch.
+     */
+    public function confirmImport(array $items): array
+    {
+        return DB::transaction(function () use ($items) {
+            $report = [
+                'diproses' => 0,
+                'ditambah' => 0,
+                'diupdate' => 0,
+                'error' => 0,
+            ];
+
+            foreach ($items as $item) {
+                $nis = trim((string) ($item['nis'] ?? ''));
+                $nama = trim((string) ($item['nama'] ?? ''));
+
+                if (empty($nis) || empty($nama)) {
+                    $report['error']++;
+                    continue;
+                }
+
+                $report['diproses']++;
+
+                $data = [
+                    'nis' => $nis,
+                    'nis2' => !empty($item['nis2']) ? (string) $item['nis2'] : null,
+                    'nama' => $nama,
+                    'tempat_lahir' => !empty($item['tempat_lahir']) ? (string) $item['tempat_lahir'] : null,
+                    'tanggal_lahir' => !empty($item['tanggal_lahir']) ? (string) $item['tanggal_lahir'] : null,
+                    'jenis_kelamin' => strtoupper((string) ($item['jenis_kelamin'] ?? 'L')) === 'P' ? 'P' : 'L',
+                    'alamat' => !empty($item['alamat']) ? (string) $item['alamat'] : null,
+                    'tags' => !empty($item['tags']) ? (string) $item['tags'] : null,
+                    'note' => !empty($item['note']) ? (string) $item['note'] : null,
+                    'unit' => !empty($item['unit']) ? (string) $item['unit'] : 'BARU',
+                    'va_jajan' => !empty($item['va_jajan']) ? (string) $item['va_jajan'] : null,
+                    'status' => in_array($item['status'] ?? 'aktif', ['aktif', 'nonaktif']) ? $item['status'] : 'aktif',
+                ];
+
+                $exists = Santri::withTrashed()->where('nis', $nis)->exists();
+                $santri = Santri::withTrashed()->updateOrCreate(['nis' => $nis], $data);
+                $santri->syncWaliAccount();
+
+                if ($exists) {
+                    $report['diupdate']++;
+                } else {
+                    $report['ditambah']++;
+                }
+            }
+
+            return $report;
+        });
+    }
+
     public function import(string|UploadedFile $file, ?string $fotoFolder = null): array
     {
         $path = $file instanceof UploadedFile ? $file->getRealPath() : $file;
@@ -62,8 +181,6 @@ class SantriImportService
                     'tanggal_lahir' => $this->tanggal($row[$cols['tanggal_lahir']] ?? null),
                     'jenis_kelamin' => strtoupper((string) ($this->bersihkan($row[$cols['jenis_kelamin']] ?? null) ?: 'L')),
                     'alamat' => $this->nullable($row[$cols['alamat']] ?? null),
-                    'kelas' => $this->nullable($row[$cols['kelas']] ?? null),
-                    'kelas_detail' => $this->nullable($row[$cols['kelas_detail']] ?? null),
                     'tags' => $this->nullable($row[$cols['tags']] ?? null),
                     'note' => $this->nullable($row[$cols['note']] ?? null),
                     'unit' => $unit,
@@ -119,8 +236,6 @@ class SantriImportService
             'tanggal_lahir' => 'tanggal lahir',
             'jenis_kelamin' => 'jenis kelamin',
             'alamat' => 'alamat',
-            'kelas' => 'kelas',
-            'kelas_detail' => 'kelas detail',
             'tags' => 'tags',
             'note' => 'note',
             'va_jajan' => 'va jajan',

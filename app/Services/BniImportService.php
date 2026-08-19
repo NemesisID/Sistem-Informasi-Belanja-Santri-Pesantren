@@ -123,9 +123,9 @@ class BniImportService
     {
         return Santri::query()
             ->where(function ($q) use ($va, $customer) {
-                $q->where('va_jajan', $va)->orWhere('va_pembayaran', $va);
+                $q->where('va_jajan', $va);
                 if ($customer !== null && $customer !== '') {
-                    $q->orWhere('va_jajan', $customer)->orWhere('va_pembayaran', $customer);
+                    $q->orWhere('va_jajan', $customer);
                 }
             })
             ->first();

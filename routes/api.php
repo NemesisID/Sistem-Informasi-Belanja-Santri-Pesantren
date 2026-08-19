@@ -56,12 +56,18 @@ Route::middleware(['auth:sanctum', 'role:admin,staff'])->group(function () {
     Route::get('/santris/{santri}/mutasi', [SantriController::class, 'mutasi']);
 });
 
-// Santri — khusus admin
+// Santri — khusus admin & staff (penyesuaian)
 Route::middleware(['auth:sanctum', 'role:admin'])->group(function () {
     Route::post('/santris', [SantriController::class, 'store']);
     Route::put('/santris/{santri}', [SantriController::class, 'update']);
     Route::delete('/santris/{santri}', [SantriController::class, 'destroy']);
     Route::post('/santris/import', [SantriController::class, 'import']);
+    Route::post('/santris/import-preview', [SantriController::class, 'importPreview']);
+    Route::post('/santris/import-confirm', [SantriController::class, 'importConfirm']);
+});
+
+// Penyesuaian saldo (staff & admin)
+Route::middleware(['auth:sanctum', 'role:staff,admin'])->group(function () {
     Route::post('/santris/{santri}/penyesuaian', [SantriController::class, 'penyesuaian']);
 });
 
@@ -84,6 +90,8 @@ Route::middleware(['auth:sanctum', 'role:staff,admin'])->group(function () {
     Route::post('/bni-uploads', [BniUploadController::class, 'store']);
     Route::get('/bni-uploads/{upload}', [BniUploadController::class, 'show']);
     Route::post('/bni-uploads/{upload}/apply', [BniUploadController::class, 'apply']);
+    Route::put('/bni-uploads/{upload}/items/{item}', [BniUploadController::class, 'updateItem']);
+    Route::delete('/bni-uploads/{upload}/items/{item}', [BniUploadController::class, 'destroyItem']);
 });
 
 // ===================== TRANSAKSI (admin, staff) =====================

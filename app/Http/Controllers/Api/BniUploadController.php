@@ -218,7 +218,7 @@ class BniUploadController extends Controller
                 'va' => $i->va,
                 'nama' => $i->nama,
                 'nominal' => (int) $i->nominal,
-                'tanggal' => $i->tanggal?->format('Y-m-d'),
+                'tanggal' => $i->tanggal?->format('Y-m-d H:i:s'),
                 'journal' => $i->journal,
                 'billing_id' => $i->billing_id,
                 'status_valid' => (bool) $i->status_valid,

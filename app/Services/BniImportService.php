@@ -203,10 +203,10 @@ class BniImportService
             return null;
         }
         if (is_numeric($value)) {
-            return Date::excelToDateTimeObject((float) $value)->format('Y-m-d');
+            return Date::excelToDateTimeObject((float) $value)->format('Y-m-d H:i:s');
         }
         $parsed = strtotime((string) $value);
-        return $parsed ? date('Y-m-d', $parsed) : null;
+        return $parsed ? date('Y-m-d H:i:s', $parsed) : null;
     }
 
     private function bersihkan(mixed $value): ?string

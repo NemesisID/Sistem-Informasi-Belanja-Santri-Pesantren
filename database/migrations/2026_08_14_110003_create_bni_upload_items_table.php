@@ -14,7 +14,7 @@ return new class extends Migration
             $table->string('va');
             $table->string('nama')->nullable();
             $table->bigInteger('nominal');
-            $table->date('tanggal')->nullable();
+            $table->dateTime('tanggal')->nullable();
             $table->foreignId('santri_id')->nullable()->constrained()->nullOnDelete();
             $table->boolean('status_valid')->default(false);
             $table->string('catatan')->nullable();

@@ -122,8 +122,8 @@ class SantriImportService
                     'status' => in_array($item['status'] ?? 'aktif', ['aktif', 'nonaktif']) ? $item['status'] : 'aktif',
                 ];
 
-                $exists = Santri::withTrashed()->where('nis', $nis)->exists();
-                $santri = Santri::withTrashed()->updateOrCreate(['nis' => $nis], $data);
+                $exists = Santri::where('nis', $nis)->exists();
+                $santri = Santri::updateOrCreate(['nis' => $nis], $data);
                 $santri->syncWaliAccount();
 
                 if ($exists) {
@@ -197,8 +197,8 @@ class SantriImportService
                     continue;
                 }
 
-                $exists = Santri::withTrashed()->where('nis', $data['nis'])->exists();
-                $santri = Santri::withTrashed()->updateOrCreate(['nis' => $data['nis']], $data);
+                $exists = Santri::where('nis', $data['nis'])->exists();
+                $santri = Santri::updateOrCreate(['nis' => $data['nis']], $data);
                 $santri->syncWaliAccount();
 
                 if ($exists) {

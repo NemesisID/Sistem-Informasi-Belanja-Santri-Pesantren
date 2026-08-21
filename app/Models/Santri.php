@@ -6,13 +6,11 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-use Illuminate\Database\Eloquent\SoftDeletes;
-use Illuminate\Support\Facades\Hash;
 
 class Santri extends Model
 {
     /** @use HasFactory<\Database\Factories\SantriFactory> */
-    use HasFactory, SoftDeletes;
+    use HasFactory;
 
     protected $guarded = [];
 
@@ -52,11 +50,7 @@ class Santri extends Model
 
                 // Hapus akun wali jika akun dibuat khusus santri ini (username == NIS) atau sudah tidak punya santri lain
                 if ($wali->username === (string) $santri->nis || $wali->santris()->count() === 0) {
-                    if ($santri->isForceDeleting()) {
-                        $wali->forceDelete();
-                    } else {
-                        $wali->delete();
-                    }
+                    $wali->delete();
                 }
             }
         });
@@ -72,16 +66,16 @@ class Santri extends Model
         }
 
         $wali = $this->walis()->first()
-            ?? User::where('username', (string) $this->nis)->where('role', 'wali')->first();
+            ?? User::where('username', (string) $this->nis)->first();
 
-        $rawPassword = $this->tanggal_lahir 
-            ? $this->tanggal_lahir->format('dmY') 
-            : (string) $this->nis;
+        // Jangan timpa akun jika username bentrok dengan admin/staff
+        if ($wali && $wali->role !== 'wali') {
+            return null;
+        }
 
         $data = [
             'name'      => $this->nama,
             'username'  => (string) $this->nis,
-            'password'  => $rawPassword,
             'role'      => 'wali',
             'is_active' => true,
         ];
@@ -89,6 +83,9 @@ class Santri extends Model
         if ($wali) {
             $wali->update($data);
         } else {
+            $data['password'] = $this->tanggal_lahir 
+                ? $this->tanggal_lahir->format('dmY') 
+                : (string) $this->nis;
             $wali = User::create($data);
         }
 

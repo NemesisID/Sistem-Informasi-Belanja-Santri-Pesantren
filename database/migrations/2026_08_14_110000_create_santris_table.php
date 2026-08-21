@@ -27,7 +27,6 @@ return new class extends Migration
             $table->bigInteger('saldo')->default(0);
             $table->string('foto_path')->nullable();
             $table->timestamps();
-            $table->softDeletes();
         });
     }
 

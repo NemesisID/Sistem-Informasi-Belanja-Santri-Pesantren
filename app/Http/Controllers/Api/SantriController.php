@@ -35,7 +35,6 @@ class SantriController extends Controller
                     ->orWhere('nis', 'like', "%{$search}%"));
             })
             ->when($request->input('unit'), fn ($q, $unit) => $q->where('unit', $unit))
-            ->when($request->input('kelas'), fn ($q, $kelas) => $q->where('kelas', $kelas))
             ->when($request->input('status'), fn ($q, $status) => $q->where('status', $status))
             ->orderBy('nis');
 

@@ -18,7 +18,7 @@ class WaliUserController extends Controller
         $perPage = min((int) $request->integer('per_page', 15) ?: 15, (int) config('koin.max_per_page'));
 
         $query = User::where('role', 'wali')
-            ->with('santris:id,nis,nama,kelas,unit')
+            ->with('santris:id,nis,nama,unit')
             ->when($request->input('search'), function ($q, $search) {
                 $q->where(fn ($q) => $q->where('name', 'like', "%{$search}%")
                     ->orWhere('username', 'like', "%{$search}%")

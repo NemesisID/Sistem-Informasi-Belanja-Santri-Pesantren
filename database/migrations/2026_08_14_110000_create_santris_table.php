@@ -17,10 +17,6 @@ return new class extends Migration
             $table->date('tanggal_lahir')->nullable();
             $table->enum('jenis_kelamin', ['L', 'P']);
             $table->text('alamat')->nullable();
-            $table->string('kelas')->nullable();
-            $table->string('kelas_detail')->nullable();
-            $table->string('tags')->nullable();
-            $table->string('note')->nullable();
             $table->enum('unit', ['MTS', 'MA', 'SMP', 'SMA', 'SMK', 'BARU'])->index();
             $table->string('va_jajan')->unique()->nullable();
             $table->enum('status', ['aktif', 'nonaktif'])->default('aktif');

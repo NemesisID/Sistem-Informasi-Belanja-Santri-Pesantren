@@ -15,40 +15,80 @@ class TransactionController extends Controller
 {
     public function index(Request $request): AnonymousResourceCollection
     {
-        $perPage = min((int) $request->integer('per_page', 15) ?: 15, (int) config('koin.max_per_page'));
+        $perPage = min((int) $request->integer("per_page", 15) ?: 15, (int) config("koin.max_per_page"));
 
-        $query = Transaction::with('santri:id,nis,nama', 'creator:id,name')
-            ->when($request->input('kategori'), fn ($q, $kategori) => $q->where('tipe', $kategori))
-            ->when($request->input('dari'), fn ($q, $dari) => $q->whereDate('created_at', '>=', $dari))
-            ->when($request->input('sampai'), fn ($q, $sampai) => $q->whereDate('created_at', '<=', $sampai))
-            ->when($request->input('search'), function ($q, $search) {
-                $q->where(fn ($q) => $q->where('keterangan', 'like', "%{$search}%")
-                    ->orWhereHas('santri', fn ($q) => $q->where('nama', 'like', "%{$search}%")
-                        ->orWhere('nis', 'like', "%{$search}%")));
+        $query = Transaction::with("santri:id,nis,nama", "creator:id,name")
+            ->when($request->filled("tipe"), function ($q) use ($request) {
+                $t = strtolower($request->input("tipe"));
+                if ($t === "masuk") {
+                    $q->where("nominal", ">", 0);
+                } elseif ($t === "keluar") {
+                    $q->where("nominal", "<", 0);
+                } else {
+                    $q->where("tipe", $t);
+                }
             })
-            ->latest('created_at');
+            ->when($request->filled("kategori") && !$request->filled("tipe"), function ($q) use ($request) {
+                $k = strtolower($request->input("kategori"));
+                if ($k === "masuk") {
+                    $q->where("nominal", ">", 0);
+                } elseif ($k === "keluar") {
+                    $q->where("nominal", "<", 0);
+                } else {
+                    $q->where("tipe", $k);
+                }
+            })
+            ->when($request->filled("dari"), fn ($q) => $q->whereDate("created_at", ">=", $request->input("dari")))
+            ->when($request->filled("sampai"), fn ($q) => $q->whereDate("created_at", "<=", $request->input("sampai")))
+            ->when($request->filled("search"), function ($q) use ($request) {
+                $search = $request->input("search");
+                $q->where(fn ($q) => $q->where("keterangan", "like", "%{$search}%")
+                    ->orWhereHas("santri", fn ($q) => $q->where("nama", "like", "%{$search}%")
+                        ->orWhere("nis", "like", "%{$search}%")));
+            })
+            ->latest("created_at");
 
         return TransactionResource::collection($query->paginate($perPage));
     }
 
     public function show(Transaction $transaction): TransactionResource
     {
-        return new TransactionResource($transaction->load('santri', 'creator'));
+        return new TransactionResource($transaction->load("santri", "creator"));
     }
 
     public function export(Request $request): BinaryFileResponse
     {
-        $query = Transaction::with('santri:id,nis,nama', 'creator:id,name')
-            ->when($request->input('kategori'), fn ($q, $kategori) => $q->where('tipe', $kategori))
-            ->when($request->input('dari'), fn ($q, $dari) => $q->whereDate('created_at', '>=', $dari))
-            ->when($request->input('sampai'), fn ($q, $sampai) => $q->whereDate('created_at', '<=', $sampai))
-            ->when($request->input('search'), function ($q, $search) {
-                $q->where(fn ($q) => $q->where('keterangan', 'like', "%{$search}%")
-                    ->orWhereHas('santri', fn ($q) => $q->where('nama', 'like', "%{$search}%")
-                        ->orWhere('nis', 'like', "%{$search}%")));
+        $query = Transaction::with("santri:id,nis,nama", "creator:id,name")
+            ->when($request->filled("tipe"), function ($q) use ($request) {
+                $t = strtolower($request->input("tipe"));
+                if ($t === "masuk") {
+                    $q->where("nominal", ">", 0);
+                } elseif ($t === "keluar") {
+                    $q->where("nominal", "<", 0);
+                } else {
+                    $q->where("tipe", $t);
+                }
             })
-            ->orderBy('created_at', 'desc');
+            ->when($request->filled("kategori") && !$request->filled("tipe"), function ($q) use ($request) {
+                $k = strtolower($request->input("kategori"));
+                if ($k === "masuk") {
+                    $q->where("nominal", ">", 0);
+                } elseif ($k === "keluar") {
+                    $q->where("nominal", "<", 0);
+                } else {
+                    $q->where("tipe", $k);
+                }
+            })
+            ->when($request->filled("dari"), fn ($q) => $q->whereDate("created_at", ">=", $request->input("dari")))
+            ->when($request->filled("sampai"), fn ($q) => $q->whereDate("created_at", "<=", $request->input("sampai")))
+            ->when($request->filled("search"), function ($q) use ($request) {
+                $search = $request->input("search");
+                $q->where(fn ($q) => $q->where("keterangan", "like", "%{$search}%")
+                    ->orWhereHas("santri", fn ($q) => $q->where("nama", "like", "%{$search}%")
+                        ->orWhere("nis", "like", "%{$search}%")));
+            })
+            ->orderBy("created_at", "desc");
 
-        return Excel::download(new TransactionsExport($query), 'transaksi-' . now()->format('Y-m-d') . '.xlsx');
+        return Excel::download(new TransactionsExport($query), "transaksi-" . now()->format("Y-m-d") . ".xlsx");
     }
 }

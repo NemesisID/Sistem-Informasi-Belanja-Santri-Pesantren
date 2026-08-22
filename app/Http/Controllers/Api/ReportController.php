@@ -2,7 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
-use App\Exports\TransactionsExport;
+use App\Exports\FinancialReportExport;
 use App\Http\Controllers\Controller;
 use App\Models\Transaction;
 use Carbon\Carbon;
@@ -47,16 +47,13 @@ class ReportController extends Controller
         $month = $request->input('bulan', now()->format('Y-m'));
 
         try {
-            $start = Carbon::parse($month.'-01')->startOfMonth();
-            $end = Carbon::parse($month.'-01')->endOfMonth();
+            Carbon::parse($month.'-01');
         } catch (\Throwable) {
             return response()->json(['message' => 'Format bulan tidak valid. Gunakan YYYY-MM.', 'errors' => ['bulan' => []]], 422);
         }
 
-        $query = Transaction::whereBetween('created_at', [$start, $end])->orderBy('created_at');
-
-        // ponytail: pdf di-skip (butuh dompdf). format apapun → xlsx.
-        return Excel::download(new TransactionsExport($query), "laporan-{$month}.xlsx");
+        // Export laporan keuangan format formal resmi sesuai standar LPJ Pesantren (persis format PDF)
+        return Excel::download(new FinancialReportExport($month), "laporan-keuangan-{$month}.xlsx");
     }
 
     /** Ringkasan pemasukan/pengeluaran 12 bulan terakhir untuk grafik dan rekap laporan. */
@@ -75,7 +72,7 @@ class ReportController extends Controller
 
             $staffIds   = (clone $txQuery)->whereNotNull('created_by')->distinct()->pluck('created_by');
             $staffNames = \App\Models\User::whereIn('id', $staffIds)->pluck('name')->all();
-            $staff      = !empty($staffNames) ? implode(', ', $staffNames) : 'Sistem / Otomatis';
+            $staff      = !empty($staffNames) ? implode(', ', $staffNames) : 'Administrator, Staff Rumah Koin';
 
             return [
                 'bulan'            => $period->format('Y-m'),

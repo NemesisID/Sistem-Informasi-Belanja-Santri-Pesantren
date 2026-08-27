@@ -21,9 +21,6 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'role' => \App\Http\Middleware\EnsureRole::class,
         ]);
-
-        // Semua route api dibatasi rate limit default (throttle:api)
-        $middleware->throttleApi('api');
     })
     ->withExceptions(function (Exceptions $exceptions) {
         // Format error JSON konsisten: {message, errors}

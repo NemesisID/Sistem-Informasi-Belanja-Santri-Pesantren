@@ -28,6 +28,7 @@ class SantriRequest extends FormRequest
             'jenis_kelamin' => ['sometimes', 'required', Rule::in(['L', 'P'])],
             'alamat' => ['nullable', 'string'],
             'unit' => ['nullable', Rule::in(['MTS', 'MA', 'SMP', 'SMA', 'SMK', 'BARU'])],
+            'kelas' => ['nullable', 'string', 'max:255'],
             'va_jajan' => ['nullable', 'string', Rule::unique('santris', 'va_jajan')->ignore($id)],
             'status' => ['nullable', Rule::in(['aktif', 'nonaktif'])],
             'foto' => ['nullable', 'image', 'mimes:jpg,jpeg,png', 'max:2048'],

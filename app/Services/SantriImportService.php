@@ -63,6 +63,7 @@ class SantriImportService
                     'tanggal_lahir' => $this->tanggal($row[$cols['tanggal_lahir']] ?? null) ?? '',
                     'jenis_kelamin' => strtoupper((string) ($this->bersihkan($row[$cols['jenis_kelamin']] ?? null) ?: 'L')) === 'P' ? 'P' : 'L',
                     'alamat' => $this->nullable($row[$cols['alamat']] ?? null) ?? '',
+                    'kelas' => $this->nullable($row[$cols['kelas']] ?? null) ?? '',
                     'unit' => $unit,
                     'va_jajan' => $this->nullable($row[$cols['va_jajan']] ?? null) ?? '',
                     'status' => 'aktif',
@@ -111,6 +112,7 @@ class SantriImportService
                     'tanggal_lahir' => !empty($item['tanggal_lahir']) ? (string) $item['tanggal_lahir'] : null,
                     'jenis_kelamin' => strtoupper((string) ($item['jenis_kelamin'] ?? 'L')) === 'P' ? 'P' : 'L',
                     'alamat' => !empty($item['alamat']) ? (string) $item['alamat'] : null,
+                    'kelas' => !empty($item['kelas']) ? (string) $item['kelas'] : null,
                     'unit' => !empty($item['unit']) ? (string) $item['unit'] : 'BARU',
                     'va_jajan' => !empty($item['va_jajan']) ? (string) $item['va_jajan'] : null,
                     'status' => in_array($item['status'] ?? 'aktif', ['aktif', 'nonaktif']) ? $item['status'] : 'aktif',
@@ -177,6 +179,7 @@ class SantriImportService
                     'tanggal_lahir' => $this->tanggal($row[$cols['tanggal_lahir']] ?? null),
                     'jenis_kelamin' => strtoupper((string) ($this->bersihkan($row[$cols['jenis_kelamin']] ?? null) ?: 'L')),
                     'alamat' => $this->nullable($row[$cols['alamat']] ?? null),
+                    'kelas' => $this->nullable($row[$cols['kelas']] ?? null),
                     'unit' => $unit,
                     'va_jajan' => $this->nullable($row[$cols['va_jajan']] ?? null),
                     'status' => 'aktif',
@@ -230,6 +233,7 @@ class SantriImportService
             'tanggal_lahir' => 'tanggal lahir',
             'jenis_kelamin' => 'jenis kelamin',
             'alamat' => 'alamat',
+            'kelas' => 'kelas',
             'va_jajan' => 'va jajan',
         ];
 

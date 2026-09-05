@@ -18,7 +18,7 @@ class WaliUserController extends Controller
         $perPage = min((int) $request->integer('per_page', 15) ?: 15, (int) config('koin.max_per_page'));
 
         $query = User::where('role', 'wali')
-            ->with('santris:id,nis,nama,unit')
+            ->with('santris:id,nis,nama,unit,kelas')
             ->when($request->input('search'), function ($q, $search) {
                 $q->where(fn ($q) => $q->where('name', 'like', "%{$search}%")
                     ->orWhere('username', 'like', "%{$search}%")
@@ -63,7 +63,7 @@ class WaliUserController extends Controller
 
         $user->update($data);
 
-        return new UserResource($user->fresh()->load('santris:id,nis,nama'));
+        return new UserResource($user->fresh()->load('santris:id,nis,nama,unit,kelas'));
     }
 
     public function destroy(User $user): JsonResponse

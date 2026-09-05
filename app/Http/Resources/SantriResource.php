@@ -22,6 +22,7 @@ class SantriResource extends JsonResource
             'jenis_kelamin' => $this->jenis_kelamin,
             'alamat' => $this->alamat,
             'unit' => $this->unit,
+            'kelas' => $this->kelas,
             'va_jajan' => $this->va_jajan,
             'status' => $this->status,
             'saldo' => (int) $this->saldo,

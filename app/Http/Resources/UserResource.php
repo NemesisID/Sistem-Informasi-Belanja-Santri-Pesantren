@@ -27,6 +27,8 @@ class UserResource extends JsonResource
                 'id' => $s->id,
                 'nis' => $s->nis,
                 'nama' => $s->nama,
+                'unit' => $s->unit,
+                'kelas' => $s->kelas,
                 'va_jajan' => $s->va_jajan,
             ])),
         ];

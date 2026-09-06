@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Santri;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use PhpOffice\PhpSpreadsheet\IOFactory;
 use PhpOffice\PhpSpreadsheet\Reader\Xlsx;
@@ -116,6 +117,8 @@ class SantriImportService
                 'error' => 0,
             ];
 
+            $claimedVas = [];
+
             foreach ($items as $item) {
                 $nis = trim((string) ($item['nis'] ?? ''));
                 $nama = trim((string) ($item['nama'] ?? ''));
@@ -127,6 +130,20 @@ class SantriImportService
 
                 $report['diproses']++;
 
+                // Mencegah duplikasi VA jajan yang melanggar unique constraint di database
+                $vaJajan = !empty($item['va_jajan']) ? trim((string) $item['va_jajan']) : null;
+                if ($vaJajan) {
+                    $vaBelongToOther = Santri::where('va_jajan', $vaJajan)->where('nis', '!=', $nis)->exists();
+                    $vaClaimedInBatch = isset($claimedVas[$vaJajan]) && $claimedVas[$vaJajan] !== $nis;
+
+                    if ($vaBelongToOther || $vaClaimedInBatch) {
+                        Log::info("VA Jajan {$vaJajan} untuk NIS {$nis} ({$nama}) sudah digunakan santri lain. Disimpan dengan VA null.");
+                        $vaJajan = null;
+                    } else {
+                        $claimedVas[$vaJajan] = $nis;
+                    }
+                }
+
                 $data = [
                     'nis' => $nis,
                     'nis2' => !empty($item['nis2']) ? (string) $item['nis2'] : null,
@@ -137,18 +154,23 @@ class SantriImportService
                     'alamat' => !empty($item['alamat']) ? (string) $item['alamat'] : null,
                     'kelas' => !empty($item['kelas']) ? (string) $item['kelas'] : null,
                     'unit' => !empty($item['unit']) ? (string) $item['unit'] : 'BARU',
-                    'va_jajan' => !empty($item['va_jajan']) ? (string) $item['va_jajan'] : null,
+                    'va_jajan' => $vaJajan,
                     'status' => in_array($item['status'] ?? 'aktif', ['aktif', 'nonaktif']) ? $item['status'] : 'aktif',
                 ];
 
-                $exists = Santri::where('nis', $nis)->exists();
-                $santri = Santri::updateOrCreate(['nis' => $nis], $data);
-                $santri->syncWaliAccount();
+                try {
+                    $exists = Santri::where('nis', $nis)->exists();
+                    $santri = Santri::updateOrCreate(['nis' => $nis], $data);
+                    $santri->syncWaliAccount();
 
-                if ($exists) {
-                    $report['diupdate']++;
-                } else {
-                    $report['ditambah']++;
+                    if ($exists) {
+                        $report['diupdate']++;
+                    } else {
+                        $report['ditambah']++;
+                    }
+                } catch (\Exception $e) {
+                    Log::error("Gagal simpan santri NIS {$nis}: " . $e->getMessage());
+                    $report['error']++;
                 }
             }
 
@@ -175,6 +197,8 @@ class SantriImportService
                 'foto_terpasang' => 0,
                 'error' => 0,
             ];
+
+            $claimedVas = [];
 
             foreach ($spreadsheet->getWorksheetIterator() as $sheet) {
                 $unit = $this->unitDariNamaSheet($sheet->getTitle());
@@ -218,6 +242,19 @@ class SantriImportService
 
                     $report['diproses']++;
 
+                    $vaJajan = $this->nullable($row[$cols['va_jajan']] ?? null);
+                    if ($vaJajan) {
+                        $vaBelongToOther = Santri::where('va_jajan', $vaJajan)->where('nis', '!=', $nisStr)->exists();
+                        $vaClaimedInBatch = isset($claimedVas[$vaJajan]) && $claimedVas[$vaJajan] !== $nisStr;
+
+                        if ($vaBelongToOther || $vaClaimedInBatch) {
+                            Log::info("VA Jajan {$vaJajan} untuk NIS {$nisStr} ({$nama}) sudah digunakan santri lain. Disimpan dengan VA null.");
+                            $vaJajan = null;
+                        } else {
+                            $claimedVas[$vaJajan] = $nisStr;
+                        }
+                    }
+
                     $data = [
                         'nis' => $nisStr,
                         'nis2' => $this->nullable($row[$cols['nis2']] ?? null),
@@ -228,23 +265,28 @@ class SantriImportService
                         'alamat' => $this->nullable($row[$cols['alamat']] ?? null),
                         'kelas' => $this->nullable($row[$cols['kelas']] ?? null),
                         'unit' => $unit,
-                        'va_jajan' => $this->nullable($row[$cols['va_jajan']] ?? null),
+                        'va_jajan' => $vaJajan,
                         'status' => 'aktif',
                         'saldo' => 0,
                     ];
 
-                    $exists = Santri::where('nis', $nisStr)->exists();
-                    $santri = Santri::updateOrCreate(['nis' => $nisStr], $data);
-                    $santri->syncWaliAccount();
+                    try {
+                        $exists = Santri::where('nis', $nisStr)->exists();
+                        $santri = Santri::updateOrCreate(['nis' => $nisStr], $data);
+                        $santri->syncWaliAccount();
 
-                    if ($exists) {
-                        $report['diupdate']++;
-                    } else {
-                        $report['ditambah']++;
-                    }
+                        if ($exists) {
+                            $report['diupdate']++;
+                        } else {
+                            $report['ditambah']++;
+                        }
 
-                    if ($fotoFolder && $this->pasangFoto($nisStr, $fotoFolder)) {
-                        $report['foto_terpasang']++;
+                        if ($fotoFolder && $this->pasangFoto($nisStr, $fotoFolder)) {
+                            $report['foto_terpasang']++;
+                        }
+                    } catch (\Exception $e) {
+                        Log::error("Gagal simpan santri NIS {$nisStr}: " . $e->getMessage());
+                        $report['error']++;
                     }
                 }
             }

@@ -6,6 +6,7 @@ use App\Models\Santri;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use PhpOffice\PhpSpreadsheet\IOFactory;
 use PhpOffice\PhpSpreadsheet\Reader\Xlsx;
 use PhpOffice\PhpSpreadsheet\Shared\Date;
 use Carbon\Carbon;
@@ -22,8 +23,13 @@ class SantriImportService
     public function parsePreview(UploadedFile $file): array
     {
         $path = $file->getRealPath();
-        $reader = new Xlsx();
-        $spreadsheet = $reader->load($path);
+        
+        try {
+            $spreadsheet = IOFactory::load($path);
+        } catch (\Exception $e) {
+            $reader = new Xlsx();
+            $spreadsheet = $reader->load($path);
+        }
 
         $items = [];
         $existingNises = Santri::pluck('nis')->flip()->toArray();
@@ -32,7 +38,12 @@ class SantriImportService
             $unit = $this->unitDariNamaSheet($sheet->getTitle());
             $rows = $sheet->toArray();
 
+            if (empty($rows)) {
+                continue;
+            }
+
             // Menggabungkan 5 baris pertama menjadi satu 'super header' per kolom
+            // Karena beberapa template sekolah menaruh teks header utama (seperti VA JAJAN) di baris ke-4
             $header = [];
             for ($i = 0; $i < 5; $i++) {
                 if (!isset($rows[$i])) break;
@@ -42,18 +53,30 @@ class SantriImportService
             }
             $cols = $this->petaKolom($header);
 
-            foreach ($rows as $row) {
+            foreach ($rows as $rowIndex => $row) {
+                // Lewati baris yang kemungkinan besar baris header tabel
+                if ($rowIndex < 5) {
+                    $rowStr = strtolower(implode(' ', array_filter(array_map('strval', $row))));
+                    if (str_contains($rowStr, 'nomor identitas') || str_contains($rowStr, 'nama santri') || str_contains($rowStr, 'jenis kelamin')) {
+                        continue;
+                    }
+                }
+
                 $nis = $this->bersihkan($row[$cols['nis']] ?? null);
-                if ($nis === null || (string) $nis === '0' || ! ctype_digit((string) $nis)) {
+                if ($nis === null || (string) $nis === '0' || (string) $nis === '') {
+                    continue;
+                }
+
+                $nisStr = trim((string) $nis);
+                if (strtolower($nisStr) === 'nis' || strtolower($nisStr) === 'no' || str_contains(strtolower($nisStr), 'identitas')) {
                     continue;
                 }
 
                 $nama = (string) ($this->bersihkan($row[$cols['nama']] ?? null) ?? '');
-                if (empty($nama)) {
+                if (empty($nama) || strtolower($nama) === 'nama' || strtolower($nama) === 'nama santri') {
                     continue;
                 }
 
-                $nisStr = (string) $nis;
                 $items[] = [
                     'temp_id' => 'tmp_' . $nisStr . '_' . uniqid(),
                     'nis' => $nisStr,
@@ -74,17 +97,20 @@ class SantriImportService
 
         $spreadsheet->disconnectWorksheets();
 
-        return $items;
+        return [
+            'total' => count($items),
+            'items' => $items,
+        ];
     }
 
     /**
-     * Konfirmasi dan simpan item yang sudah disetujui / diedit dari preview ke database.
+     * Simpan data hasil preview/edit santri ke database secara batch.
      */
     public function confirmImport(array $items): array
     {
         return DB::transaction(function () use ($items) {
             $report = [
-                'diproses' => count($items),
+                'diproses' => 0,
                 'ditambah' => 0,
                 'diupdate' => 0,
                 'error' => 0,
@@ -98,6 +124,8 @@ class SantriImportService
                     $report['error']++;
                     continue;
                 }
+
+                $report['diproses']++;
 
                 $data = [
                     'nis' => $nis,
@@ -131,8 +159,13 @@ class SantriImportService
     public function import(string|UploadedFile $file, ?string $fotoFolder = null): array
     {
         $path = $file instanceof UploadedFile ? $file->getRealPath() : $file;
-        $reader = new Xlsx();
-        $spreadsheet = $reader->load($path);
+        
+        try {
+            $spreadsheet = IOFactory::load($path);
+        } catch (\Exception $e) {
+            $reader = new Xlsx();
+            $spreadsheet = $reader->load($path);
+        }
 
         $report = DB::transaction(function () use ($spreadsheet, $fotoFolder) {
             $report = [
@@ -146,8 +179,11 @@ class SantriImportService
             foreach ($spreadsheet->getWorksheetIterator() as $sheet) {
                 $unit = $this->unitDariNamaSheet($sheet->getTitle());
                 $rows = $sheet->toArray();
+                
+                if (empty($rows)) {
+                    continue;
+                }
 
-                // Menggabungkan 5 baris pertama menjadi satu 'super header' per kolom
                 $header = [];
                 for ($i = 0; $i < 5; $i++) {
                     if (!isset($rows[$i])) break;
@@ -157,18 +193,35 @@ class SantriImportService
                 }
                 $cols = $this->petaKolom($header);
 
-                foreach ($rows as $row) {
+                foreach ($rows as $rowIndex => $row) {
+                    if ($rowIndex < 5) {
+                        $rowStr = strtolower(implode(' ', array_filter(array_map('strval', $row))));
+                        if (str_contains($rowStr, 'nomor identitas') || str_contains($rowStr, 'nama santri') || str_contains($rowStr, 'jenis kelamin')) {
+                            continue;
+                        }
+                    }
+
                     $nis = $this->bersihkan($row[$cols['nis']] ?? null);
-                    if ($nis === null || (string) $nis === '0' || ! ctype_digit((string) $nis)) {
+                    if ($nis === null || (string) $nis === '0' || (string) $nis === '') {
+                        continue;
+                    }
+
+                    $nisStr = trim((string) $nis);
+                    if (strtolower($nisStr) === 'nis' || strtolower($nisStr) === 'no' || str_contains(strtolower($nisStr), 'identitas')) {
+                        continue;
+                    }
+
+                    $nama = (string) ($this->bersihkan($row[$cols['nama']] ?? null) ?? '');
+                    if (empty($nama) || strtolower($nama) === 'nama' || strtolower($nama) === 'nama santri') {
                         continue;
                     }
 
                     $report['diproses']++;
 
                     $data = [
-                        'nis' => (string) $nis,
+                        'nis' => $nisStr,
                         'nis2' => $this->nullable($row[$cols['nis2']] ?? null),
-                        'nama' => (string) ($this->bersihkan($row[$cols['nama']] ?? null) ?? ''),
+                        'nama' => $nama,
                         'tempat_lahir' => $this->nullable($row[$cols['tempat_lahir']] ?? null),
                         'tanggal_lahir' => $this->tanggal($row[$cols['tanggal_lahir']] ?? null),
                         'jenis_kelamin' => strtoupper((string) ($this->bersihkan($row[$cols['jenis_kelamin']] ?? null) ?: 'L')),
@@ -180,13 +233,8 @@ class SantriImportService
                         'saldo' => 0,
                     ];
 
-                    if (empty($data['nama'])) {
-                        $report['error']++;
-                        continue;
-                    }
-
-                    $exists = Santri::where('nis', $data['nis'])->exists();
-                    $santri = Santri::updateOrCreate(['nis' => $data['nis']], $data);
+                    $exists = Santri::where('nis', $nisStr)->exists();
+                    $santri = Santri::updateOrCreate(['nis' => $nisStr], $data);
                     $santri->syncWaliAccount();
 
                     if ($exists) {
@@ -195,7 +243,7 @@ class SantriImportService
                         $report['ditambah']++;
                     }
 
-                    if ($fotoFolder && $this->pasangFoto($data['nis'], $fotoFolder)) {
+                    if ($fotoFolder && $this->pasangFoto($nisStr, $fotoFolder)) {
                         $report['foto_terpasang']++;
                     }
                 }
@@ -209,7 +257,7 @@ class SantriImportService
         return $report;
     }
 
-    /** Unit dari nama sheet: SANTRI BARU -> BARU, sisanya nama sheet asli. */
+    /** Unit dari nama sheet: SANTRI BARU → BARU, sisanya nama sheet asli. */
     private function unitDariNamaSheet(string $nama): string
     {
         $unit = strtoupper(trim($nama));
@@ -234,14 +282,14 @@ class SantriImportService
         $index = array_fill_keys(array_keys($map), null);
         
         foreach ($header as $i => $h) {
-            $key = strtolower((string) $this->bersihkan($h));
+            $key = strtolower(trim((string) $this->bersihkan($h)));
             if (empty($key)) continue;
 
             foreach ($map as $field => $patterns) {
                 if ($index[$field] !== null) continue; // Sudah terpetakan
                 
-                foreach ((array)$patterns as $pattern) {
-                    if ($key === $pattern || str_contains($key, $pattern)) {
+                foreach ((array) $patterns as $pattern) {
+                    if ($key === $pattern || str_contains($key, $pattern) || str_contains($pattern, $key)) {
                         $index[$field] = $i;
                         break;
                     }
@@ -270,7 +318,7 @@ class SantriImportService
             try {
                 return Date::excelToDateTimeObject((float) $value)->format('Y-m-d');
             } catch (\Exception $e) {
-                // Fallback jika bukan excel timestamp
+                // Lanjut
             }
         }
 
@@ -307,7 +355,7 @@ class SantriImportService
         return null;
     }
 
-    /** Normalisasi '0.0'/kosong/strip -> null. */
+    /** Normalisasi '0.0'/kosong/strip → null. */
     private function nullable(mixed $value): ?string
     {
         $clean = $this->bersihkan($value);

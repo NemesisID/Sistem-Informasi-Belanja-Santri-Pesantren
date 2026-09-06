@@ -21,6 +21,7 @@ class SantriResource extends JsonResource
             'tanggal_lahir' => $this->tanggal_lahir?->format('Y-m-d'),
             'jenis_kelamin' => $this->jenis_kelamin,
             'alamat' => $this->alamat,
+            'kelas' => $this->kelas,
             'unit' => $this->unit,
             'kelas' => $this->kelas,
             'va_jajan' => $this->va_jajan,

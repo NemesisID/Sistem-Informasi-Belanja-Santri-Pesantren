@@ -89,6 +89,15 @@ class SantriController extends Controller
     {
         $data = $request->validated();
         unset($data['foto']);
+        unset($data['hapus_foto']);
+
+        if ($request->boolean('hapus_foto') || $request->input('hapus_foto') === 'true' || $request->input('hapus_foto') === true || $request->input('hapus_foto') === 1 || $request->input('hapus_foto') === '1') {
+            if ($santri->foto_path) {
+                Storage::disk('local')->delete($santri->foto_path);
+            }
+            $data['foto_path'] = null;
+            $data['foto_slug'] = null;
+        }
 
         if ($request->hasFile('foto')) {
             if ($santri->foto_path) {
@@ -109,6 +118,25 @@ class SantriController extends Controller
         $santri->delete();
 
         return response()->json(['message' => 'Santri dihapus.']);
+    }
+
+    /**
+     * Bulk delete santri by array of IDs.
+     * Receives: { "ids": [1, 2, 3, ...] }
+     */
+    public function bulkDestroy(Request $request): JsonResponse
+    {
+        $ids = $request->validate(['ids' => 'required|array', 'ids.*' => 'integer'])['ids'];
+
+        // Delete associated photos from storage
+        $santris = Santri::whereIn('id', $ids)->whereNotNull('foto_path')->get(['id', 'foto_path']);
+        foreach ($santris as $s) {
+            Storage::disk('local')->delete($s->foto_path);
+        }
+
+        $deleted = Santri::whereIn('id', $ids)->delete();
+
+        return response()->json(['message' => "`{$deleted} santri dihapus.", 'deleted_count' => $deleted]);
     }
 
     public function mutasi(Santri $santri): AnonymousResourceCollection

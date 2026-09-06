@@ -27,11 +27,13 @@ class SantriRequest extends FormRequest
             'tanggal_lahir' => ['nullable', 'date'],
             'jenis_kelamin' => ['sometimes', 'required', Rule::in(['L', 'P'])],
             'alamat' => ['nullable', 'string'],
+            'kelas' => ['nullable', 'string', 'max:255'],
             'unit' => ['nullable', Rule::in(['MTS', 'MA', 'SMP', 'SMA', 'SMK', 'BARU'])],
             'kelas' => ['nullable', 'string', 'max:255'],
             'va_jajan' => ['nullable', 'string', Rule::unique('santris', 'va_jajan')->ignore($id)],
             'status' => ['nullable', Rule::in(['aktif', 'nonaktif'])],
             'foto' => ['nullable', 'image', 'mimes:jpg,jpeg,png', 'max:2048'],
+            'hapus_foto' => ['nullable'],
         ];
     }
 }

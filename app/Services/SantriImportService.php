@@ -3,172 +3,52 @@
 namespace App\Services;
 
 use App\Models\Santri;
-use Illuminate\Http\UploadedFile;
-use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Storage;
-use PhpOffice\PhpSpreadsheet\Reader\Xlsx;
+use PhpOffice\PhpSpreadsheet\IOFactory;
 use PhpOffice\PhpSpreadsheet\Shared\Date;
-use Carbon\Carbon;
 
-/**
- * Import data santri dari file Excel (6 sheet = 6 unit) sesuai pipeline §8.
- * Foto: cari file bernama {nis}.jpg di folder lokal lalu salin ke storage.
- */
 class SantriImportService
 {
     /**
-     * Parse Excel dan kembalikan array data santri untuk di-preview/diedit admin sebelum disimpan.
+     * Memproses file Excel (.xlsx / .xls / .csv) dan opsional folder foto santri.
+     * Mengembalikan ringkasan statistik hasil import per sheet.
      */
-    public function parsePreview(UploadedFile $file): array
+    public function import(string $filePath, ?string $fotoFolder = null): array
     {
-        $path = $file->getRealPath();
-        $reader = new Xlsx();
-        $spreadsheet = $reader->load($path);
+        $spreadsheet = IOFactory::load($filePath);
+        $report = [
+            'total_rows' => 0,
+            'diproses' => 0,
+            'ditambah' => 0,
+            'diupdate' => 0,
+            'error' => 0,
+            'foto_terpasang' => 0,
+            'sheets' => [],
+        ];
 
-        $items = [];
-        $existingNises = Santri::pluck('nis')->flip()->toArray();
+        foreach ($spreadsheet->getAllSheets() as $sheet) {
+            $sheetName = $sheet->getTitle();
+            $unit = $this->unitDariNamaSheet($sheetName);
+            $rows = $sheet->toArray(null, true, true, false);
 
-        foreach ($spreadsheet->getWorksheetIterator() as $sheet) {
-            $unit = $this->unitDariNamaSheet($sheet->getTitle());
-            $rows = $sheet->toArray();
-
-            // Menggabungkan 5 baris pertama menjadi satu 'super header' per kolom
-            $header = [];
-            for ($i = 0; $i < 5; $i++) {
-                if (!isset($rows[$i])) break;
-                foreach ($rows[$i] as $colIndex => $val) {
-                    $header[$colIndex] = ($header[$colIndex] ?? '') . ' ' . $val;
-                }
+            if (count($rows) < 2) {
+                continue; // Skip sheet kosong / cuma header
             }
+
+            $header = array_map('trim', array_shift($rows));
             $cols = $this->petaKolom($header);
 
+            $sheetStats = ['sheet' => $sheetName, 'unit' => $unit, 'rows' => 0, 'added' => 0, 'updated' => 0, 'failed' => 0];
+
             foreach ($rows as $row) {
-                $nis = $this->bersihkan($row[$cols['nis']] ?? null);
-                if ($nis === null || (string) $nis === '0' || ! ctype_digit((string) $nis)) {
-                    continue;
+                $nis = $this->nullable($row[$cols['nis']] ?? null);
+                if (empty($nis)) {
+                    continue; // NIS wajib ada
                 }
 
-                $nama = (string) ($this->bersihkan($row[$cols['nama']] ?? null) ?? '');
-                if (empty($nama)) {
-                    continue;
-                }
-
-                $nisStr = (string) $nis;
-                $items[] = [
-                    'temp_id' => 'tmp_' . $nisStr . '_' . uniqid(),
-                    'nis' => $nisStr,
-                    'nis2' => $this->nullable($row[$cols['nis2']] ?? null) ?? '',
-                    'nama' => $nama,
-                    'tempat_lahir' => $this->nullable($row[$cols['tempat_lahir']] ?? null) ?? '',
-                    'tanggal_lahir' => $this->tanggal($row[$cols['tanggal_lahir']] ?? null) ?? '',
-                    'jenis_kelamin' => strtoupper((string) ($this->bersihkan($row[$cols['jenis_kelamin']] ?? null) ?: 'L')) === 'P' ? 'P' : 'L',
-                    'alamat' => $this->nullable($row[$cols['alamat']] ?? null) ?? '',
-                    'kelas' => $this->nullable($row[$cols['kelas']] ?? null) ?? '',
-                    'unit' => $unit,
-                    'va_jajan' => $this->nullable($row[$cols['va_jajan']] ?? null) ?? '',
-                    'status' => 'aktif',
-                    'is_exists' => isset($existingNises[$nisStr]),
-                ];
-            }
-        }
-
-        $spreadsheet->disconnectWorksheets();
-
-        return [
-            'total' => count($items),
-            'items' => $items,
-        ];
-    }
-
-    /**
-     * Simpan data hasil preview/edit santri ke database secara batch.
-     */
-    public function confirmImport(array $items): array
-    {
-        return DB::transaction(function () use ($items) {
-            $report = [
-                'diproses' => 0,
-                'ditambah' => 0,
-                'diupdate' => 0,
-                'error' => 0,
-            ];
-
-            foreach ($items as $item) {
-                $nis = trim((string) ($item['nis'] ?? ''));
-                $nama = trim((string) ($item['nama'] ?? ''));
-
-                if (empty($nis) || empty($nama)) {
-                    $report['error']++;
-                    continue;
-                }
-
-                $report['diproses']++;
-
-                $data = [
-                    'nis' => $nis,
-                    'nis2' => !empty($item['nis2']) ? (string) $item['nis2'] : null,
-                    'nama' => $nama,
-                    'tempat_lahir' => !empty($item['tempat_lahir']) ? (string) $item['tempat_lahir'] : null,
-                    'tanggal_lahir' => !empty($item['tanggal_lahir']) ? (string) $item['tanggal_lahir'] : null,
-                    'jenis_kelamin' => strtoupper((string) ($item['jenis_kelamin'] ?? 'L')) === 'P' ? 'P' : 'L',
-                    'alamat' => !empty($item['alamat']) ? (string) $item['alamat'] : null,
-                    'kelas' => !empty($item['kelas']) ? (string) $item['kelas'] : null,
-                    'unit' => !empty($item['unit']) ? (string) $item['unit'] : 'BARU',
-                    'va_jajan' => !empty($item['va_jajan']) ? (string) $item['va_jajan'] : null,
-                    'status' => in_array($item['status'] ?? 'aktif', ['aktif', 'nonaktif']) ? $item['status'] : 'aktif',
-                ];
-
-                $exists = Santri::where('nis', $nis)->exists();
-                $santri = Santri::updateOrCreate(['nis' => $nis], $data);
-                $santri->syncWaliAccount();
-
-                if ($exists) {
-                    $report['diupdate']++;
-                } else {
-                    $report['ditambah']++;
-                }
-            }
-
-            return $report;
-        });
-    }
-
-    public function import(string|UploadedFile $file, ?string $fotoFolder = null): array
-    {
-        $path = $file instanceof UploadedFile ? $file->getRealPath() : $file;
-        $reader = new Xlsx();
-        $spreadsheet = $reader->load($path);
-
-        $report = DB::transaction(function () use ($spreadsheet, $fotoFolder) {
-            $report = [
-                'diproses' => 0,
-                'ditambah' => 0,
-                'diupdate' => 0,
-                'foto_terpasang' => 0,
-                'error' => 0,
-            ];
-
-            foreach ($spreadsheet->getWorksheetIterator() as $sheet) {
-                $unit = $this->unitDariNamaSheet($sheet->getTitle());
-                $rows = $sheet->toArray();
-                
-                // Menggabungkan 5 baris pertama menjadi satu 'super header' per kolom
-                // Karena beberapa template sekolah menaruh teks header utama (seperti VA JAJAN) di baris ke-4
-                $header = [];
-                for ($i = 0; $i < 5; $i++) {
-                    if (!isset($rows[$i])) break;
-                    foreach ($rows[$i] as $colIndex => $val) {
-                        $header[$colIndex] = ($header[$colIndex] ?? '') . ' ' . $val;
-                    }
-                }
-                $cols = $this->petaKolom($header);
-
-                foreach ($rows as $row) {
-                $nis = $this->bersihkan($row[$cols['nis']] ?? null);
-                if ($nis === null || (string) $nis === '0' || ! ctype_digit((string) $nis)) {
-                    continue; // baris kosong / tanpa NIS / baris keterangan (bukan angka)
-                }
-
+                $report['total_rows']++;
+                $sheetStats['rows']++;
                 $report['diproses']++;
 
                 $data = [
@@ -188,6 +68,7 @@ class SantriImportService
 
                 if (empty($data['nama'])) {
                     $report['error']++;
+                    $sheetStats['failed']++;
                     continue;
                 }
 
@@ -197,54 +78,80 @@ class SantriImportService
 
                 if ($exists) {
                     $report['diupdate']++;
+                    $sheetStats['updated']++;
                 } else {
                     $report['ditambah']++;
+                    $sheetStats['added']++;
                 }
 
                 if ($fotoFolder && $this->pasangFoto($data['nis'], $fotoFolder)) {
                     $report['foto_terpasang']++;
                 }
             }
-            }
 
-            return $report;
-        });
+            $report['sheets'][] = $sheetStats;
+        }
 
         $spreadsheet->disconnectWorksheets();
 
         return $report;
     }
 
-    /** Unit dari nama sheet: SANTRI BARU → BARU, sisanya nama sheet asli. */
+    /** Unit dari nama sheet: SANTRI BARU -> BARU, sisanya nama sheet asli. */
     private function unitDariNamaSheet(string $nama): string
     {
         $unit = strtoupper(trim($nama));
         return $unit === 'SANTRI BARU' ? 'BARU' : $unit;
     }
 
-    /** Peta indeks kolom berdasarkan nama header (normalisasi huruf kecil). */
+    /** Peta indeks kolom berdasarkan nama header (fleksibel dengan berbagai variasi alias). */
     private function petaKolom(array $header): array
     {
         $map = [
-            'nis' => 'nomor identitas 1',
-            'nis2' => 'nomor identitas 2',
-            'nama' => 'nama',
-            'tempat_lahir' => 'tempat lahir',
-            'tanggal_lahir' => 'tanggal lahir',
-            'jenis_kelamin' => 'jenis kelamin',
-            'alamat' => 'alamat',
-            'kelas' => 'kelas',
-            'va_jajan' => 'va jajan',
+            'nis' => ['nomor identitas 1', 'no identitas 1', 'no. identitas 1', 'no induk', 'nomor induk', 'no_induk', 'id santri', 'nis'],
+            'nis2' => ['nomor identitas 2', 'no identitas 2', 'no. identitas 2', 'nis2'],
+            'nama' => ['nama santri', 'nama lengkap', 'nama siswa', 'nama'],
+            'tempat_lahir' => ['tempat lahir', 'tmp lahir', 'tempat_lahir', 'tpt lahir', 'kota lahir'],
+            'tanggal_lahir' => ['tanggal lahir', 'tgl lahir', 'tanggal_lahir', 'tgl_lahir', 'tgl'],
+            'jenis_kelamin' => ['jenis kelamin', 'jenis_kelamin', 'kelamin', 'jk', 'gender', 'l/p', 'sex'],
+            'alamat' => ['alamat lengkap', 'alamat santri', 'alamat', 'domisili'],
+            'kelas' => ['kelas', 'kls', 'tingkat', 'kelas santri'],
+            'va_jajan' => ['va jajan', 'virtual account jajan', 'va_jajan', 'va tagihan', 'va', 'no va', 'nomor va'],
         ];
 
         $index = array_fill_keys(array_keys($map), null);
+        
         foreach ($header as $i => $h) {
             $key = strtolower((string) $this->bersihkan($h));
-            foreach ($map as $field => $label) {
-                if ($key === $label || str_contains($key, $label)) {
-                    $index[$field] = $i;
+            if (empty($key)) continue;
+
+            foreach ($map as $field => $patterns) {
+                if ($index[$field] !== null) continue; // Sudah terpetakan
+                
+                foreach ($patterns as $pattern) {
+                    if ($key === $pattern || str_contains($key, $pattern)) {
+                        $index[$field] = $i;
+                        break;
+                    }
                 }
             }
+        }
+
+        // Fallback jika kolom utama belum terpetakan
+        if ($index['nis'] === null && isset($header[0])) {
+            $index['nis'] = 0;
+        }
+        if ($index['nama'] === null && isset($header[1])) {
+            $index['nama'] = 1;
+        }
+        if ($index['alamat'] === null && isset($header[2])) {
+            $index['alamat'] = 2;
+        }
+        if ($index['tanggal_lahir'] === null && isset($header[3])) {
+            $index['tanggal_lahir'] = 3;
+        }
+        if ($index['jenis_kelamin'] === null && isset($header[4])) {
+            $index['jenis_kelamin'] = 4;
         }
 
         return $index;
@@ -257,7 +164,11 @@ class SantriImportService
         }
 
         if (is_numeric($value)) {
-            return Date::excelToDateTimeObject((float) $value)->format('Y-m-d');
+            try {
+                return Date::excelToDateTimeObject((float) $value)->format('Y-m-d');
+            } catch (\Exception $e) {
+                // Fallback jika bukan excel timestamp
+            }
         }
 
         $value = trim((string) $value);
@@ -267,13 +178,13 @@ class SantriImportService
         $bulanEn = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december', 'aug', 'oct', 'dec'];
         $valueStr = str_ireplace($bulanId, $bulanEn, $value);
 
-        // 1. Coba strtotime langsung tanpa normalisasi (ini akan menangani 12/27/2012 dengan sempurna)
+        // 1. Coba strtotime langsung tanpa normalisasi
         $parsedRaw = strtotime($valueStr);
         if ($parsedRaw) {
             return date('Y-m-d', $parsedRaw);
         }
 
-        // 2. Normalisasi semua separator menjadi tanda hubung (-) (ini akan menangani 27/12/2012 -> 27-12-2012 -> valid di strtotime Eropa)
+        // 2. Normalisasi semua separator menjadi tanda hubung (-)
         $normalized = preg_replace('/[\s\/\.]+/', '-', $valueStr);
         $parsed = strtotime($normalized);
         if ($parsed) {
@@ -281,7 +192,7 @@ class SantriImportService
         }
 
         // 3. Fallback Carbon terakhir dengan format Indonesia jika bentuknya aneh
-        $formats = ['d M Y', 'd F Y', 'Y-m-d', 'Y/m/d'];
+        $formats = ['d-m-Y', 'd/m/Y', 'd M Y', 'd F Y', 'Y-m-d', 'Y/m/d'];
         foreach ($formats as $format) {
             try {
                 return Carbon::createFromFormat($format, $valueStr)->format('Y-m-d');
@@ -293,7 +204,7 @@ class SantriImportService
         return null;
     }
 
-    /** Normalisasi '0.0'/kosong/strip → null. */
+    /** Normalisasi '0.0'/kosong/strip -> null. */
     private function nullable(mixed $value): ?string
     {
         $clean = $this->bersihkan($value);
@@ -315,7 +226,7 @@ class SantriImportService
     /** Salin file foto {nis}.* dari folder lokal ke storage publik. */
     private function pasangFoto(string $nis, string $folder): bool
     {
-        $files = glob(rtrim($folder, '/\\')."/{$nis}.*");
+        $files = glob(rtrim($folder, "/\\") . "/{$nis}.*");
         if (! $files) {
             return false;
         }

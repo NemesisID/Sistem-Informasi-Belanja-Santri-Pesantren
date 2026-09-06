@@ -61,6 +61,7 @@ Route::middleware(['auth:sanctum', 'role:admin'])->group(function () {
     Route::post('/santris', [SantriController::class, 'store']);
     Route::put('/santris/{santri}', [SantriController::class, 'update']);
     Route::delete('/santris/{santri}', [SantriController::class, 'destroy']);
+    Route::post('/santris/bulk-delete', [SantriController::class, 'bulkDestroy']);
     Route::post('/santris/import', [SantriController::class, 'import']);
     Route::post('/santris/import-preview', [SantriController::class, 'importPreview']);
     Route::post('/santris/import-confirm', [SantriController::class, 'importConfirm']);

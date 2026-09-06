@@ -3,94 +3,206 @@
 namespace App\Services;
 
 use App\Models\Santri;
-use Illuminate\Support\Carbon;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
-use PhpOffice\PhpSpreadsheet\IOFactory;
+use PhpOffice\PhpSpreadsheet\Reader\Xlsx;
 use PhpOffice\PhpSpreadsheet\Shared\Date;
+use Carbon\Carbon;
 
+/**
+ * Import data santri dari file Excel (6 sheet = 6 unit) sesuai pipeline §8.
+ * Foto: cari file bernama {nis}.jpg di folder lokal lalu salin ke storage.
+ */
 class SantriImportService
 {
     /**
-     * Memproses file Excel (.xlsx / .xls / .csv) dan opsional folder foto santri.
-     * Mengembalikan ringkasan statistik hasil import per sheet.
+     * Parse Excel dan kembalikan array data santri untuk di-preview/diedit admin sebelum disimpan.
      */
-    public function import(string $filePath, ?string $fotoFolder = null): array
+    public function parsePreview(UploadedFile $file): array
     {
-        $spreadsheet = IOFactory::load($filePath);
-        $report = [
-            'total_rows' => 0,
-            'diproses' => 0,
-            'ditambah' => 0,
-            'diupdate' => 0,
-            'error' => 0,
-            'foto_terpasang' => 0,
-            'sheets' => [],
-        ];
+        $path = $file->getRealPath();
+        $reader = new Xlsx();
+        $spreadsheet = $reader->load($path);
 
-        foreach ($spreadsheet->getAllSheets() as $sheet) {
-            $sheetName = $sheet->getTitle();
-            $unit = $this->unitDariNamaSheet($sheetName);
-            $rows = $sheet->toArray(null, true, true, false);
+        $items = [];
+        $existingNises = Santri::pluck('nis')->flip()->toArray();
 
-            if (count($rows) < 2) {
-                continue; // Skip sheet kosong / cuma header
+        foreach ($spreadsheet->getWorksheetIterator() as $sheet) {
+            $unit = $this->unitDariNamaSheet($sheet->getTitle());
+            $rows = $sheet->toArray();
+
+            // Menggabungkan 5 baris pertama menjadi satu 'super header' per kolom
+            $header = [];
+            for ($i = 0; $i < 5; $i++) {
+                if (!isset($rows[$i])) break;
+                foreach ($rows[$i] as $colIndex => $val) {
+                    $header[$colIndex] = ($header[$colIndex] ?? '') . ' ' . $val;
+                }
             }
-
-            $header = array_map('trim', array_shift($rows));
             $cols = $this->petaKolom($header);
 
-            $sheetStats = ['sheet' => $sheetName, 'unit' => $unit, 'rows' => 0, 'added' => 0, 'updated' => 0, 'failed' => 0];
-
             foreach ($rows as $row) {
-                $nis = $this->nullable($row[$cols['nis']] ?? null);
-                if (empty($nis)) {
-                    continue; // NIS wajib ada
-                }
-
-                $report['total_rows']++;
-                $sheetStats['rows']++;
-                $report['diproses']++;
-
-                $data = [
-                    'nis' => (string) $nis,
-                    'nis2' => $this->nullable($row[$cols['nis2']] ?? null),
-                    'nama' => (string) ($this->bersihkan($row[$cols['nama']] ?? null) ?? ''),
-                    'tempat_lahir' => $this->nullable($row[$cols['tempat_lahir']] ?? null),
-                    'tanggal_lahir' => $this->tanggal($row[$cols['tanggal_lahir']] ?? null),
-                    'jenis_kelamin' => strtoupper((string) ($this->bersihkan($row[$cols['jenis_kelamin']] ?? null) ?: 'L')),
-                    'alamat' => $this->nullable($row[$cols['alamat']] ?? null),
-                    'kelas' => $this->nullable($row[$cols['kelas']] ?? null),
-                    'unit' => $unit,
-                    'va_jajan' => $this->nullable($row[$cols['va_jajan']] ?? null),
-                    'status' => 'aktif',
-                    'saldo' => 0,
-                ];
-
-                if (empty($data['nama'])) {
-                    $report['error']++;
-                    $sheetStats['failed']++;
+                $nis = $this->bersihkan($row[$cols['nis']] ?? null);
+                if ($nis === null || (string) $nis === '0' || ! ctype_digit((string) $nis)) {
                     continue;
                 }
 
-                $exists = Santri::where('nis', $data['nis'])->exists();
-                $santri = Santri::updateOrCreate(['nis' => $data['nis']], $data);
+                $nama = (string) ($this->bersihkan($row[$cols['nama']] ?? null) ?? '');
+                if (empty($nama)) {
+                    continue;
+                }
+
+                $nisStr = (string) $nis;
+                $items[] = [
+                    'temp_id' => 'tmp_' . $nisStr . '_' . uniqid(),
+                    'nis' => $nisStr,
+                    'nis2' => $this->nullable($row[$cols['nis2']] ?? null) ?? '',
+                    'nama' => $nama,
+                    'tempat_lahir' => $this->nullable($row[$cols['tempat_lahir']] ?? null) ?? '',
+                    'tanggal_lahir' => $this->tanggal($row[$cols['tanggal_lahir']] ?? null) ?? '',
+                    'jenis_kelamin' => strtoupper((string) ($this->bersihkan($row[$cols['jenis_kelamin']] ?? null) ?: 'L')) === 'P' ? 'P' : 'L',
+                    'alamat' => $this->nullable($row[$cols['alamat']] ?? null) ?? '',
+                    'kelas' => $this->nullable($row[$cols['kelas']] ?? null) ?? '',
+                    'unit' => $unit,
+                    'va_jajan' => $this->nullable($row[$cols['va_jajan']] ?? null) ?? '',
+                    'status' => 'aktif',
+                    'is_exists' => isset($existingNises[$nisStr]),
+                ];
+            }
+        }
+
+        $spreadsheet->disconnectWorksheets();
+
+        return $items;
+    }
+
+    /**
+     * Konfirmasi dan simpan item yang sudah disetujui / diedit dari preview ke database.
+     */
+    public function confirmImport(array $items): array
+    {
+        return DB::transaction(function () use ($items) {
+            $report = [
+                'diproses' => count($items),
+                'ditambah' => 0,
+                'diupdate' => 0,
+                'error' => 0,
+            ];
+
+            foreach ($items as $item) {
+                $nis = trim((string) ($item['nis'] ?? ''));
+                $nama = trim((string) ($item['nama'] ?? ''));
+
+                if (empty($nis) || empty($nama)) {
+                    $report['error']++;
+                    continue;
+                }
+
+                $data = [
+                    'nis' => $nis,
+                    'nis2' => !empty($item['nis2']) ? (string) $item['nis2'] : null,
+                    'nama' => $nama,
+                    'tempat_lahir' => !empty($item['tempat_lahir']) ? (string) $item['tempat_lahir'] : null,
+                    'tanggal_lahir' => !empty($item['tanggal_lahir']) ? (string) $item['tanggal_lahir'] : null,
+                    'jenis_kelamin' => strtoupper((string) ($item['jenis_kelamin'] ?? 'L')) === 'P' ? 'P' : 'L',
+                    'alamat' => !empty($item['alamat']) ? (string) $item['alamat'] : null,
+                    'kelas' => !empty($item['kelas']) ? (string) $item['kelas'] : null,
+                    'unit' => !empty($item['unit']) ? (string) $item['unit'] : 'BARU',
+                    'va_jajan' => !empty($item['va_jajan']) ? (string) $item['va_jajan'] : null,
+                    'status' => in_array($item['status'] ?? 'aktif', ['aktif', 'nonaktif']) ? $item['status'] : 'aktif',
+                ];
+
+                $exists = Santri::where('nis', $nis)->exists();
+                $santri = Santri::updateOrCreate(['nis' => $nis], $data);
                 $santri->syncWaliAccount();
 
                 if ($exists) {
                     $report['diupdate']++;
-                    $sheetStats['updated']++;
                 } else {
                     $report['ditambah']++;
-                    $sheetStats['added']++;
-                }
-
-                if ($fotoFolder && $this->pasangFoto($data['nis'], $fotoFolder)) {
-                    $report['foto_terpasang']++;
                 }
             }
 
-            $report['sheets'][] = $sheetStats;
-        }
+            return $report;
+        });
+    }
+
+    public function import(string|UploadedFile $file, ?string $fotoFolder = null): array
+    {
+        $path = $file instanceof UploadedFile ? $file->getRealPath() : $file;
+        $reader = new Xlsx();
+        $spreadsheet = $reader->load($path);
+
+        $report = DB::transaction(function () use ($spreadsheet, $fotoFolder) {
+            $report = [
+                'diproses' => 0,
+                'ditambah' => 0,
+                'diupdate' => 0,
+                'foto_terpasang' => 0,
+                'error' => 0,
+            ];
+
+            foreach ($spreadsheet->getWorksheetIterator() as $sheet) {
+                $unit = $this->unitDariNamaSheet($sheet->getTitle());
+                $rows = $sheet->toArray();
+
+                // Menggabungkan 5 baris pertama menjadi satu 'super header' per kolom
+                $header = [];
+                for ($i = 0; $i < 5; $i++) {
+                    if (!isset($rows[$i])) break;
+                    foreach ($rows[$i] as $colIndex => $val) {
+                        $header[$colIndex] = ($header[$colIndex] ?? '') . ' ' . $val;
+                    }
+                }
+                $cols = $this->petaKolom($header);
+
+                foreach ($rows as $row) {
+                    $nis = $this->bersihkan($row[$cols['nis']] ?? null);
+                    if ($nis === null || (string) $nis === '0' || ! ctype_digit((string) $nis)) {
+                        continue;
+                    }
+
+                    $report['diproses']++;
+
+                    $data = [
+                        'nis' => (string) $nis,
+                        'nis2' => $this->nullable($row[$cols['nis2']] ?? null),
+                        'nama' => (string) ($this->bersihkan($row[$cols['nama']] ?? null) ?? ''),
+                        'tempat_lahir' => $this->nullable($row[$cols['tempat_lahir']] ?? null),
+                        'tanggal_lahir' => $this->tanggal($row[$cols['tanggal_lahir']] ?? null),
+                        'jenis_kelamin' => strtoupper((string) ($this->bersihkan($row[$cols['jenis_kelamin']] ?? null) ?: 'L')),
+                        'alamat' => $this->nullable($row[$cols['alamat']] ?? null),
+                        'kelas' => $this->nullable($row[$cols['kelas']] ?? null),
+                        'unit' => $unit,
+                        'va_jajan' => $this->nullable($row[$cols['va_jajan']] ?? null),
+                        'status' => 'aktif',
+                        'saldo' => 0,
+                    ];
+
+                    if (empty($data['nama'])) {
+                        $report['error']++;
+                        continue;
+                    }
+
+                    $exists = Santri::where('nis', $data['nis'])->exists();
+                    $santri = Santri::updateOrCreate(['nis' => $data['nis']], $data);
+                    $santri->syncWaliAccount();
+
+                    if ($exists) {
+                        $report['diupdate']++;
+                    } else {
+                        $report['ditambah']++;
+                    }
+
+                    if ($fotoFolder && $this->pasangFoto($data['nis'], $fotoFolder)) {
+                        $report['foto_terpasang']++;
+                    }
+                }
+            }
+
+            return $report;
+        });
 
         $spreadsheet->disconnectWorksheets();
 
@@ -128,7 +240,7 @@ class SantriImportService
             foreach ($map as $field => $patterns) {
                 if ($index[$field] !== null) continue; // Sudah terpetakan
                 
-                foreach ($patterns as $pattern) {
+                foreach ((array)$patterns as $pattern) {
                     if ($key === $pattern || str_contains($key, $pattern)) {
                         $index[$field] = $i;
                         break;
@@ -143,15 +255,6 @@ class SantriImportService
         }
         if ($index['nama'] === null && isset($header[1])) {
             $index['nama'] = 1;
-        }
-        if ($index['alamat'] === null && isset($header[2])) {
-            $index['alamat'] = 2;
-        }
-        if ($index['tanggal_lahir'] === null && isset($header[3])) {
-            $index['tanggal_lahir'] = 3;
-        }
-        if ($index['jenis_kelamin'] === null && isset($header[4])) {
-            $index['jenis_kelamin'] = 4;
         }
 
         return $index;
@@ -192,7 +295,7 @@ class SantriImportService
         }
 
         // 3. Fallback Carbon terakhir dengan format Indonesia jika bentuknya aneh
-        $formats = ['d-m-Y', 'd/m/Y', 'd M Y', 'd F Y', 'Y-m-d', 'Y/m/d'];
+        $formats = ['d M Y', 'd F Y', 'Y-m-d', 'Y/m/d'];
         foreach ($formats as $format) {
             try {
                 return Carbon::createFromFormat($format, $valueStr)->format('Y-m-d');
@@ -226,7 +329,7 @@ class SantriImportService
     /** Salin file foto {nis}.* dari folder lokal ke storage publik. */
     private function pasangFoto(string $nis, string $folder): bool
     {
-        $files = glob(rtrim($folder, "/\\") . "/{$nis}.*");
+        $files = glob(rtrim($folder, '/\\')."/{$nis}.*");
         if (! $files) {
             return false;
         }

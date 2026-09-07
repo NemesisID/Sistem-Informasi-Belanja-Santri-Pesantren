@@ -18,6 +18,8 @@ use Carbon\Carbon;
  */
 class SantriImportService
 {
+    private const UNIT_VALID = ['MTS', 'MA', 'SMP', 'SMA', 'SMK', 'BARU'];
+
     /**
      * Parse Excel dan kembalikan array data santri untuk di-preview/diedit admin sebelum disimpan.
      */
@@ -36,7 +38,7 @@ class SantriImportService
         $existingNises = Santri::pluck('nis')->flip()->toArray();
 
         foreach ($spreadsheet->getWorksheetIterator() as $sheet) {
-            $unit = $this->unitDariNamaSheet($sheet->getTitle());
+            $sheetUnit = $this->unitDariNamaSheet($sheet->getTitle());
             $rows = $sheet->toArray();
 
             if (empty($rows)) {
@@ -81,14 +83,13 @@ class SantriImportService
                 $items[] = [
                     'temp_id' => 'tmp_' . $nisStr . '_' . uniqid(),
                     'nis' => $nisStr,
-                    'nis2' => $this->nullable($row[$cols['nis2']] ?? null) ?? '',
                     'nama' => $nama,
                     'tempat_lahir' => $this->nullable($row[$cols['tempat_lahir']] ?? null) ?? '',
                     'tanggal_lahir' => $this->tanggal($row[$cols['tanggal_lahir']] ?? null) ?? '',
                     'jenis_kelamin' => strtoupper((string) ($this->bersihkan($row[$cols['jenis_kelamin']] ?? null) ?: 'L')) === 'P' ? 'P' : 'L',
                     'alamat' => $this->nullable($row[$cols['alamat']] ?? null) ?? '',
                     'kelas' => $this->nullable($row[$cols['kelas']] ?? null) ?? '',
-                    'unit' => $unit,
+                    'unit' => $this->unitDariNamaSheet((string) ($row[$cols['unit']] ?? '')) ?? $sheetUnit ?? 'BARU',
                     'va_jajan' => $this->nullable($row[$cols['va_jajan']] ?? null) ?? '',
                     'status' => 'aktif',
                     'is_exists' => isset($existingNises[$nisStr]),
@@ -146,14 +147,13 @@ class SantriImportService
 
                 $data = [
                     'nis' => $nis,
-                    'nis2' => !empty($item['nis2']) ? (string) $item['nis2'] : null,
                     'nama' => $nama,
                     'tempat_lahir' => !empty($item['tempat_lahir']) ? (string) $item['tempat_lahir'] : null,
                     'tanggal_lahir' => !empty($item['tanggal_lahir']) ? (string) $item['tanggal_lahir'] : null,
                     'jenis_kelamin' => strtoupper((string) ($item['jenis_kelamin'] ?? 'L')) === 'P' ? 'P' : 'L',
                     'alamat' => !empty($item['alamat']) ? (string) $item['alamat'] : null,
                     'kelas' => !empty($item['kelas']) ? (string) $item['kelas'] : null,
-                    'unit' => !empty($item['unit']) ? (string) $item['unit'] : 'BARU',
+                    'unit' => $this->unitDariNamaSheet((string) ($item['unit'] ?? '')) ?? 'BARU',
                     'va_jajan' => $vaJajan,
                     'status' => in_array($item['status'] ?? 'aktif', ['aktif', 'nonaktif']) ? $item['status'] : 'aktif',
                 ];
@@ -201,7 +201,7 @@ class SantriImportService
             $claimedVas = [];
 
             foreach ($spreadsheet->getWorksheetIterator() as $sheet) {
-                $unit = $this->unitDariNamaSheet($sheet->getTitle());
+                $sheetUnit = $this->unitDariNamaSheet($sheet->getTitle());
                 $rows = $sheet->toArray();
                 
                 if (empty($rows)) {
@@ -257,14 +257,13 @@ class SantriImportService
 
                     $data = [
                         'nis' => $nisStr,
-                        'nis2' => $this->nullable($row[$cols['nis2']] ?? null),
                         'nama' => $nama,
                         'tempat_lahir' => $this->nullable($row[$cols['tempat_lahir']] ?? null),
                         'tanggal_lahir' => $this->tanggal($row[$cols['tanggal_lahir']] ?? null),
                         'jenis_kelamin' => strtoupper((string) ($this->bersihkan($row[$cols['jenis_kelamin']] ?? null) ?: 'L')),
                         'alamat' => $this->nullable($row[$cols['alamat']] ?? null),
                         'kelas' => $this->nullable($row[$cols['kelas']] ?? null),
-                        'unit' => $unit,
+                        'unit' => $this->unitDariNamaSheet((string) ($row[$cols['unit']] ?? '')) ?? $sheetUnit ?? 'BARU',
                         'va_jajan' => $vaJajan,
                         'status' => 'aktif',
                         'saldo' => 0,
@@ -299,11 +298,15 @@ class SantriImportService
         return $report;
     }
 
-    /** Unit dari nama sheet: SANTRI BARU → BARU, sisanya nama sheet asli. */
-    private function unitDariNamaSheet(string $nama): string
+    /** Unit dari nama sheet atau isi kolom: 'SANTRI BARU' → BARU; null jika bukan unit valid. */
+    private function unitDariNamaSheet(string $nama): ?string
     {
         $unit = strtoupper(trim($nama));
-        return $unit === 'SANTRI BARU' ? 'BARU' : $unit;
+        if ($unit === 'SANTRI BARU') {
+            $unit = 'BARU';
+        }
+
+        return in_array($unit, self::UNIT_VALID, true) ? $unit : null;
     }
 
     /** Peta indeks kolom berdasarkan nama header (fleksibel dengan berbagai variasi alias). */
@@ -311,13 +314,13 @@ class SantriImportService
     {
         $map = [
             'nis' => ['nomor identitas 1', 'no identitas 1', 'no. identitas 1', 'no induk', 'nomor induk', 'no_induk', 'id santri', 'nis'],
-            'nis2' => ['nomor identitas 2', 'no identitas 2', 'no. identitas 2', 'nis2'],
             'nama' => ['nama santri', 'nama lengkap', 'nama siswa', 'nama'],
             'tempat_lahir' => ['tempat lahir', 'tmp lahir', 'tempat_lahir', 'tpt lahir', 'kota lahir'],
             'tanggal_lahir' => ['tanggal lahir', 'tgl lahir', 'tanggal_lahir', 'tgl_lahir', 'tgl'],
             'jenis_kelamin' => ['jenis kelamin', 'jenis_kelamin', 'kelamin', 'jk', 'gender', 'l/p', 'sex'],
             'alamat' => ['alamat lengkap', 'alamat santri', 'alamat', 'domisili'],
             'kelas' => ['kelas', 'kls', 'tingkat', 'kelas santri'],
+            'unit' => ['unit', 'unit santri', 'jenjang'],
             'va_jajan' => ['va jajan', 'virtual account jajan', 'va_jajan', 'va tagihan', 'va', 'no va', 'nomor va'],
         ];
 

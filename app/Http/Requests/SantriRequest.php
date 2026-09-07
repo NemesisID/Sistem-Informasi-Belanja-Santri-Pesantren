@@ -21,7 +21,6 @@ class SantriRequest extends FormRequest
 
         return [
             'nis' => ['sometimes', 'required', 'string', Rule::unique('santris', 'nis')->ignore($id)],
-            'nis2' => ['nullable', 'string'],
             'nama' => ['sometimes', 'required', 'string', 'max:255'],
             'tempat_lahir' => ['nullable', 'string', 'max:255'],
             'tanggal_lahir' => ['nullable', 'date'],

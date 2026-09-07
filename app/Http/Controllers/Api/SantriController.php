@@ -186,13 +186,24 @@ class SantriController extends Controller
 
     public function importConfirm(Request $request): JsonResponse
     {
+        $items = $request->input('items', []);
+
+        if (empty($items)) {
+            return response()->json([
+                'diproses' => 0,
+                'ditambah' => 0,
+                'diupdate' => 0,
+                'error' => 0,
+            ]);
+        }
+
         $request->validate([
             'items' => ['required', 'array'],
-            'items.*.nis' => ['required', 'string'],
-            'items.*.nama' => ['required', 'string'],
+            'items.*.nis' => ['required'],
+            'items.*.nama' => ['required'],
         ]);
 
-        $report = $this->importer->confirmImport($request->input('items'));
+        $report = $this->importer->confirmImport($items);
 
         return response()->json($report);
     }

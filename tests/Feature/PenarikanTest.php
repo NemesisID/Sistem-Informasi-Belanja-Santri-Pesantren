@@ -61,7 +61,7 @@ class PenarikanTest extends TestCase
         $this->assertSame(5000, $santri->fresh()->saldo);
     }
 
-    public function test_penarikan_ditolak_saat_melebihi_batas_2_hari_rolling(): void
+    public function test_penarikan_kedua_tetap_diperbolehkan_tanpa_batas_akumulasi_2_hari(): void
     {
         $santri = Santri::factory()->withFoto()->create(['saldo' => 100000]);
 
@@ -74,16 +74,16 @@ class PenarikanTest extends TestCase
             'created_by' => $this->staff->id,
         ]);
 
-        // 20000 + 15000 = 35000 > 30000 → ditolak
+        // Batas berlaku per transaksi, bukan akumulasi dalam 2 hari.
         $this->actingAs($this->staff)->postJson('/api/penarikan', [
             'santri_id' => $santri->id,
             'nominal' => 15000,
-        ])->assertStatus(422)->assertJsonValidationErrors('nominal');
+        ])->assertCreated();
 
-        $this->assertSame(100000, $santri->fresh()->saldo);
+        $this->assertSame(85000, $santri->fresh()->saldo);
     }
 
-    public function test_penarikan_tepat_di_batas_2_hari_diperbolehkan(): void
+    public function test_penarikan_tepat_di_batas_per_transaksi_diperbolehkan(): void
     {
         $santri = Santri::factory()->withFoto()->create(['saldo' => 50000]);
 
@@ -94,6 +94,18 @@ class PenarikanTest extends TestCase
         ])->assertCreated();
 
         $this->assertSame(20000, $santri->fresh()->saldo);
+    }
+
+    public function test_penarikan_melebihi_batas_per_transaksi_ditolak(): void
+    {
+        $santri = Santri::factory()->withFoto()->create(['saldo' => 100000]);
+
+        $this->actingAs($this->staff)->postJson('/api/penarikan', [
+            'santri_id' => $santri->id,
+            'nominal' => 30001,
+        ])->assertStatus(422)->assertJsonValidationErrors('nominal');
+
+        $this->assertSame(100000, $santri->fresh()->saldo);
     }
 
     public function test_wali_tidak_bisa_melakukan_penarikan(): void
@@ -107,7 +119,7 @@ class PenarikanTest extends TestCase
         ])->assertForbidden();
     }
 
-    public function test_tarik_lama_di_luar_2_hari_tidak_dihitung_batas(): void
+    public function test_penarikan_tetap_mengikuti_batas_per_transaksi(): void
     {
         $santri = Santri::factory()->withFoto()->create(['saldo' => 100000]);
 
@@ -121,7 +133,7 @@ class PenarikanTest extends TestCase
             'created_at' => now()->subDays(3),
         ]);
 
-        // 3 hari lalu tidak dihitung → 30000 dalam 2 hari terakhir masih boleh
+        // Riwayat penarikan tidak memengaruhi batas transaksi baru.
         $this->actingAs($this->staff)->postJson('/api/penarikan', [
             'santri_id' => $santri->id,
             'nominal' => 30000,

@@ -18,7 +18,12 @@ class PenarikanRequest extends FormRequest
     {
         return [
             'santri_id' => ['required', 'integer', 'exists:santris,id'],
-            'nominal' => ['required', 'integer', 'min:'.config('koin.min_penarikan')],
+            'nominal' => [
+                'required',
+                'integer',
+                'min:'.config('koin.min_penarikan'),
+                'max:'.config('koin.maks_penarikan'),
+            ],
         ];
     }
 }

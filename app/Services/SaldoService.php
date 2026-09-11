@@ -65,17 +65,17 @@ class SaldoService
     }
 
     /**
-     * Penarikan koin: cek batas Rp 30.000 / rolling 2 hari, lalu debit.
+     * Penarikan koin: cek batas per transaksi, lalu debit.
      */
     public function withdrawal(Santri $santri, int $nominal, User $by): Transaction
     {
         return DB::transaction(function () use ($santri, $nominal, $by) {
             $locked = Santri::whereKey($santri->id)->lockForUpdate()->firstOrFail();
 
-            if (! $this->dalamBatasTarik($locked, $nominal)) {
+            if ($nominal > (int) config('koin.maks_penarikan')) {
                 throw ValidationException::withMessages([
-                    'nominal' => 'Melebihi batas penarikan Rp '.number_format(config('koin.batas_tarik_2hari'))
-                        .' per 2 hari.',
+                    'nominal' => 'Melebihi batas penarikan Rp '.number_format(config('koin.maks_penarikan'))
+                        .' per transaksi.',
                 ]);
             }
 
@@ -91,26 +91,6 @@ class SaldoService
 
             return $this->catat($locked, 'tarik_koin', -$nominal, $before, $after, $by);
         });
-    }
-
-    /**
-     * Total penarikan santri pada rolling window 2 hari terakhir.
-     */
-    public function totalTarikDuaHari(Santri $santri): int
-    {
-        return (int) Transaction::where('santri_id', $santri->id)
-            ->where('tipe', 'tarik_koin')
-            ->where('created_at', '>=', now()->subDays(2))
-            ->sum('nominal');
-    }
-
-    /**
-     * Apakah nominal masih dalam batas tarik 2 hari?
-     */
-    public function dalamBatasTarik(Santri $santri, int $nominal): bool
-    {
-        $batas = (int) config('koin.batas_tarik_2hari');
-        return abs($this->totalTarikDuaHari($santri)) + $nominal <= $batas;
     }
 
     private function catat(

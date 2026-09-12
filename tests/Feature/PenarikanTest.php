@@ -61,20 +61,44 @@ class PenarikanTest extends TestCase
         $this->assertSame(5000, $santri->fresh()->saldo);
     }
 
-    public function test_penarikan_kedua_tetap_diperbolehkan_tanpa_batas_akumulasi_2_hari(): void
+    public function test_penarikan_kedua_pada_hari_yang_sama_ditolak(): void
     {
         $santri = Santri::factory()->withFoto()->create(['saldo' => 100000]);
 
-        // Sudah menarik 20000 dalam 2 hari terakhir
+        // Sudah menarik 20000 hari ini
         $santri->transactions()->create([
             'tipe' => 'tarik_koin',
             'nominal' => -20000,
             'saldo_sebelum' => 120000,
             'saldo_setelah' => 100000,
             'created_by' => $this->staff->id,
+            'created_at' => now(),
         ]);
 
-        // Batas berlaku per transaksi, bukan akumulasi dalam 2 hari.
+        // Penarikan kedua di hari yang sama harus ditolak
+        $this->actingAs($this->staff)->postJson('/api/penarikan', [
+            'santri_id' => $santri->id,
+            'nominal' => 15000,
+        ])->assertStatus(422)->assertJsonValidationErrors('santri_id');
+
+        $this->assertSame(100000, $santri->fresh()->saldo);
+    }
+
+    public function test_penarikan_di_hari_berbeda_diperbolehkan(): void
+    {
+        $santri = Santri::factory()->withFoto()->create(['saldo' => 100000]);
+
+        // Penarikan kemarin
+        $santri->transactions()->create([
+            'tipe' => 'tarik_koin',
+            'nominal' => -20000,
+            'saldo_sebelum' => 120000,
+            'saldo_setelah' => 100000,
+            'created_by' => $this->staff->id,
+            'created_at' => now()->subDay(),
+        ]);
+
+        // Penarikan hari ini diizinkan
         $this->actingAs($this->staff)->postJson('/api/penarikan', [
             'santri_id' => $santri->id,
             'nominal' => 15000,
@@ -83,29 +107,17 @@ class PenarikanTest extends TestCase
         $this->assertSame(85000, $santri->fresh()->saldo);
     }
 
-    public function test_penarikan_tepat_di_batas_per_transaksi_diperbolehkan(): void
-    {
-        $santri = Santri::factory()->withFoto()->create(['saldo' => 50000]);
-
-        // 30000 tepat di batas → boleh
-        $this->actingAs($this->staff)->postJson('/api/penarikan', [
-            'santri_id' => $santri->id,
-            'nominal' => 30000,
-        ])->assertCreated();
-
-        $this->assertSame(20000, $santri->fresh()->saldo);
-    }
-
-    public function test_penarikan_melebihi_batas_per_transaksi_ditolak(): void
+    public function test_penarikan_nominal_di_atas_30ribu_diperbolehkan(): void
     {
         $santri = Santri::factory()->withFoto()->create(['saldo' => 100000]);
 
+        // Nominal > 30.000 (misal 50.000) tanpa batas cap 30rb
         $this->actingAs($this->staff)->postJson('/api/penarikan', [
             'santri_id' => $santri->id,
-            'nominal' => 30001,
-        ])->assertStatus(422)->assertJsonValidationErrors('nominal');
+            'nominal' => 50000,
+        ])->assertCreated();
 
-        $this->assertSame(100000, $santri->fresh()->saldo);
+        $this->assertSame(50000, $santri->fresh()->saldo);
     }
 
     public function test_wali_tidak_bisa_melakukan_penarikan(): void
@@ -119,24 +131,23 @@ class PenarikanTest extends TestCase
         ])->assertForbidden();
     }
 
-    public function test_penarikan_tetap_mengikuti_batas_per_transaksi(): void
+    public function test_penyesuaian_tetap_diperbolehkan_meski_sudah_menarik_koin_hari_ini(): void
     {
-        $santri = Santri::factory()->withFoto()->create(['saldo' => 100000]);
+        $santri = Santri::factory()->withFoto()->create(['saldo' => 50000]);
 
-        Transaction::create([
-            'santri_id' => $santri->id,
-            'tipe' => 'tarik_koin',
-            'nominal' => -25000,
-            'saldo_sebelum' => 125000,
-            'saldo_setelah' => 100000,
-            'created_by' => $this->staff->id,
-            'created_at' => now()->subDays(3),
-        ]);
-
-        // Riwayat penarikan tidak memengaruhi batas transaksi baru.
+        // Menarik koin hari ini
         $this->actingAs($this->staff)->postJson('/api/penarikan', [
             'santri_id' => $santri->id,
-            'nominal' => 30000,
+            'nominal' => 10000,
         ])->assertCreated();
+
+        // Fitur penyesuaian (nabung/kredit) tetap diizinkan
+        $this->actingAs($this->staff)->postJson("/api/santris/{$santri->id}/penyesuaian", [
+            'aksi' => 'tambah',
+            'nominal' => 20000,
+            'keterangan' => 'Nabung koin',
+        ])->assertOk();
+
+        $this->assertSame(60000, $santri->fresh()->saldo);
     }
 }

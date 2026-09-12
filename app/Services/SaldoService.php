@@ -72,10 +72,14 @@ class SaldoService
         return DB::transaction(function () use ($santri, $nominal, $by) {
             $locked = Santri::whereKey($santri->id)->lockForUpdate()->firstOrFail();
 
-            if ($nominal > (int) config('koin.maks_penarikan')) {
+            $sudahPenarikanHariIni = $locked->transactions()
+                ->where('tipe', 'tarik_koin')
+                ->whereDate('created_at', now()->toDateString())
+                ->exists();
+
+            if ($sudahPenarikanHariIni) {
                 throw ValidationException::withMessages([
-                    'nominal' => 'Melebihi batas penarikan Rp '.number_format(config('koin.maks_penarikan'))
-                        .' per transaksi.',
+                    'santri_id' => 'Pengambilan koin hanya dapat dilakukan 1 kali sehari.',
                 ]);
             }
 

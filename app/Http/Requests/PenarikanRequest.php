@@ -22,7 +22,6 @@ class PenarikanRequest extends FormRequest
                 'required',
                 'integer',
                 'min:'.config('koin.min_penarikan'),
-                'max:'.config('koin.maks_penarikan'),
             ],
         ];
     }

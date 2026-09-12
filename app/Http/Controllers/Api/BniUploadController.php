@@ -89,8 +89,9 @@ class BniUploadController extends Controller
 
         $selectedItemIds = $request->input('item_ids');
         $dikredit = 0;
+        $duplikat = 0;
 
-        DB::transaction(function () use ($upload, $request, $selectedItemIds, &$dikredit) {
+        DB::transaction(function () use ($upload, $request, $selectedItemIds, &$dikredit, &$duplikat) {
             // Kunci baris upload agar tidak di-apply bersamaan dua kali
             $locked = BniUpload::whereKey($upload->id)->lockForUpdate()->firstOrFail();
 
@@ -121,6 +122,7 @@ class BniUploadController extends Controller
                         'applied_at' => now(),
                         'catatan' => 'Duplikat: transaksi sama sudah dikredit di upload lain.',
                     ]);
+                    $duplikat++;
                     continue;
                 }
 
@@ -141,7 +143,12 @@ class BniUploadController extends Controller
         });
 
         return response()->json([
-            'message' => "Saldo berhasil dikredit dari {$dikredit} item valid.",
+            'message' => $dikredit > 0
+                ? "{$dikredit} transaksi berhasil dikreditkan."
+                : 'Tidak ada saldo yang ditambahkan karena semua transaksi terduplikasi atau tidak valid.',
+            'dikreditkan' => $dikredit,
+            'duplikat' => $duplikat,
+            'tidak_valid' => $upload->items()->where('status_valid', false)->count(),
         ]);
     }
 

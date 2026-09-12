@@ -107,7 +107,10 @@ class BniImportTest extends TestCase
         // Apply upload 2 → tidak ada kredit tambahan
         $this->actingAs($this->staff)->postJson("/api/bni-uploads/{$u2['id']}/apply")
             ->assertOk()
-            ->assertJson(['message' => 'Saldo berhasil dikredit dari 0 item valid.']);
+            ->assertJson([
+                'dikreditkan' => 0,
+                'duplikat' => 2,
+            ]);
 
         $this->assertSame(100000, $santriA->fresh()->saldo);
         $this->assertSame(200000, $santriB->fresh()->saldo);

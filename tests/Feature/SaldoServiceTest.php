@@ -35,6 +35,17 @@ class SaldoServiceTest extends TestCase
         $this->assertSame($this->staff->id, $tx->created_by);
     }
 
+    public function test_kredit_dapat_dilakukan_dua_kali_dan_menambah_saldo_dua_kali(): void
+    {
+        $santri = Santri::factory()->create(['saldo' => 0]);
+
+        app(SaldoService::class)->kredit($santri, 50000, 'penyesuaian', $this->staff, 'Setoran pertama');
+        app(SaldoService::class)->kredit($santri, 50000, 'penyesuaian', $this->staff, 'Setoran kedua');
+
+        $this->assertSame(100000, $santri->fresh()->saldo);
+        $this->assertSame(2, $santri->transactions()->where('tipe', 'penyesuaian')->count());
+    }
+
     public function test_debit_mengurangi_saldo_sesuai(): void
     {
         $santri = Santri::factory()->create(['saldo' => 50000]);

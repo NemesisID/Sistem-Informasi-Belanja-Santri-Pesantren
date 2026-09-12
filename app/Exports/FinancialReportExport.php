@@ -34,6 +34,10 @@ class FinancialReportExport implements FromView, ShouldAutoSize, WithTitle
         $activeMonthPengeluaran = (int) abs((clone $monthQuery)->where('nominal', '<', 0)->sum('nominal'));
         $activeMonthNet = $activeMonthPemasukan - $activeMonthPengeluaran;
         $activeMonthTrx = (int) (clone $monthQuery)->count();
+        $transactionDetails = (clone $monthQuery)
+            ->with('santri:id,nis,nama', 'creator:id,name')
+            ->latest('created_at')
+            ->get();
 
         // Total Saldo Simpanan Santri Aktif
         $totalSaldoAktif = (int) Santri::where('status', 'aktif')->sum('saldo');
@@ -108,6 +112,7 @@ class FinancialReportExport implements FromView, ShouldAutoSize, WithTitle
             'activeMonthPengeluaran' => $activeMonthPengeluaran,
             'activeMonthNet' => $activeMonthNet,
             'activeMonthTrx' => $activeMonthTrx,
+            'transactionDetails' => $transactionDetails,
             'rows' => $rows,
             'totalMasukAll' => $totalMasukAll,
             'totalKeluarAll' => $totalKeluarAll,

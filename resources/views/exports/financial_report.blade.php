@@ -1,4 +1,4 @@
-<table>
+<table style="border-collapse: separate; border-spacing: 0 3px; width: 100%;">
     <!-- KOP SURAT RESMI -->
     <tr>
         <th colspan="7" style="font-size: 16px; font-weight: bold; text-align: center; color: #1E5E3A;">
@@ -6,7 +6,7 @@
         </th>
     </tr>
     <tr>
-        <th colspan="7" style="font-size: 13px; font-weight: bold; text-align: center; color: #1E5E3A;">
+        <th colspan="7" style="font-size: 13px; font-weight: bold; text-align: center; color: #0F172A;">
             BAGIAN ADMINISTRASI KEUANGAN (BAK) &amp; RUMAH KOIN
         </th>
     </tr>
@@ -23,9 +23,7 @@
     <tr>
         <td colspan="7" style="border-bottom: 2px solid #1E5E3A;"></td>
     </tr>
-    <tr>
-        <td colspan="7"></td>
-    </tr>
+    <tr style="height: 8px;"><td colspan="7"></td></tr>
 
     <!-- JUDUL DOKUMEN & METADATA -->
     <tr>
@@ -97,7 +95,7 @@
             II. RINCIAN REKAPITULASI KEUANGAN PER PERIODE
         </th>
     </tr>
-    <tr style="background-color: #1E5E3A; color: #FFFFFF;">
+    <tr style="background-color: #E2E8F0; color: #0F172A; font-weight: bold;">
         <th style="border: 1px solid #CBD5E1; text-align: center; font-weight: bold;">No</th>
         <th style="border: 1px solid #CBD5E1; text-align: left; font-weight: bold;">Periode</th>
         <th style="border: 1px solid #CBD5E1; text-align: right; font-weight: bold;">Total Masuk</th>
@@ -125,12 +123,40 @@
         <td style="border: 1px solid #CBD5E1; text-align: center;">{{ $totalTrxAll }} trx</td>
         <td style="border: 1px solid #CBD5E1; text-align: center; color: #64748B; font-style: italic;">Terverifikasi Database</td>
     </tr>
+    <tr style="height: 10px;"><td colspan="7"></td></tr>
+
+    <!-- III. RINCIAN MUTASI TRANSAKSI -->
     <tr>
-        <td colspan="7"></td>
+        <th colspan="7" style="font-size: 11px; font-weight: bold; color: #0F172A; background-color: #E2E8F0; border: 1px solid #CBD5E1; padding: 6px 5px;">
+            III. RINCIAN PEMASUKAN DAN PENGAMBILAN ({{ strtoupper($activeMonthLabel) }})
+        </th>
     </tr>
+    <tr style="background-color: #E2E8F0; color: #0F172A; font-weight: bold;">
+        <th style="border: 1px solid #CBD5E1; text-align: center; padding: 5px;">No</th>
+        <th style="border: 1px solid #CBD5E1; text-align: left; padding: 5px;">Tanggal</th>
+        <th style="border: 1px solid #CBD5E1; text-align: left; padding: 5px;">Santri</th>
+        <th style="border: 1px solid #CBD5E1; text-align: center; padding: 5px;">Jenis</th>
+        <th style="border: 1px solid #CBD5E1; text-align: right; padding: 5px;">Pemasukan</th>
+        <th style="border: 1px solid #CBD5E1; text-align: right; padding: 5px;">Pengambilan</th>
+        <th style="border: 1px solid #CBD5E1; text-align: left; padding: 5px;">Keterangan / Petugas</th>
+    </tr>
+    @forelse ($transactionDetails as $index => $transaction)
+    @php($isIncome = $transaction->nominal > 0)
+    <tr style="background-color: {{ $index % 2 === 0 ? '#FFFFFF' : '#F8FAFC' }};">
+        <td style="border: 1px solid #CBD5E1; text-align: center; padding: 5px;">{{ $index + 1 }}</td>
+        <td style="border: 1px solid #CBD5E1; padding: 5px;">{{ $transaction->created_at?->format('d/m/Y H:i') }}</td>
+        <td style="border: 1px solid #CBD5E1; padding: 5px;">{{ $transaction->santri?->nama ?? '-' }}<br><small>{{ $transaction->santri?->nis ?? '-' }}</small></td>
+        <td style="border: 1px solid #CBD5E1; text-align: center; padding: 5px; color: {{ $isIncome ? '#166534' : '#991B1B' }}; font-weight: bold;">{{ $isIncome ? 'PEMASUKAN' : 'PENGAMBILAN' }}</td>
+        <td style="border: 1px solid #CBD5E1; text-align: right; padding: 5px; color: #166534;">{{ $isIncome ? '+Rp '.number_format($transaction->nominal, 0, ',', '.') : '-' }}</td>
+        <td style="border: 1px solid #CBD5E1; text-align: right; padding: 5px; color: #991B1B;">{{ !$isIncome ? '-Rp '.number_format(abs($transaction->nominal), 0, ',', '.') : '-' }}</td>
+        <td style="border: 1px solid #CBD5E1; padding: 5px;">{{ $transaction->keterangan ?? '-' }}<br><small>{{ $transaction->creator?->name ?? 'Sistem' }}</small></td>
+    </tr>
+    @empty
     <tr>
-        <td colspan="7"></td>
+        <td colspan="7" style="border: 1px solid #CBD5E1; text-align: center; padding: 8px; color: #64748B;">Tidak ada transaksi pada periode ini.</td>
     </tr>
+    @endforelse
+    <tr style="height: 10px;"><td colspan="7"></td></tr>
 
     <!-- LEMBAR PENGESAHAN & TANDA TANGAN -->
     <tr>
@@ -140,6 +166,7 @@
     </tr>
     <tr>
         <td colspan="3" style="text-align: center; font-weight: bold; font-size: 11px;">Petugas Kasir Rumah Koin</td>
+        <td></td>
         <td></td>
         <td colspan="3" style="text-align: center; font-weight: bold; font-size: 11px;">Kepala Bagian Keuangan (BAK)</td>
     </tr>

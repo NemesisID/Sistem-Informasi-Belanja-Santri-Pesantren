@@ -101,12 +101,20 @@ jobs:
 
           cd staging && zip -qr ../paket.zip . && cd ..
 
+      - name: Cek secrets (tanpa menampilkan isinya)
+        run: |
+          [ -n "${{ secrets.DEPLOY_URL }}" ] || { echo "SECRET 'DEPLOY_URL' BELUM TERISI. Isi di: repo backend > Settings > Secrets and variables > Actions > tab Secrets > Repository secrets."; exit 1; }
+          [ -n "${{ secrets.DEPLOY_TOKEN }}" ] || { echo "SECRET 'DEPLOY_TOKEN' BELUM TERISI. Isi di: repo backend > Settings > Secrets and variables > Actions > tab Secrets > Repository secrets."; exit 1; }
+
       - name: Kirim paket ke server
         run: |
-          curl -sf --max-time 900 -X POST \
+          # --http1.1: HTTP/2 ke LiteSpeed/proxy sering reset stream saat
+          # upload besar (curl exit 92); HTTP/1.1 stabil untuk multipart.
+          curl -sSf --http1.1 --max-time 900 --retry 2 --retry-delay 5 -X POST \
             "${{ secrets.DEPLOY_URL }}?migrate=${{ inputs.migrate == true && '1' || '0' }}" \
             -H "X-Deploy-Token: ${{ secrets.DEPLOY_TOKEN }}" \
-            -F "zip=@paket.zip"
+            -F "zip=@paket.zip" \
+            -w '\nHTTP %{http_code}\n'
 
       - name: Simpan salinan paket di GitHub (bahan rollback, 90 hari)
         uses: actions/upload-artifact@v4

@@ -1,0 +1,113 @@
+name: Deploy Paket ke cPanel
+
+# Deploy HANYA berjalan saat tombol "Run workflow" ditekan (bukan otomatis
+# tiap push) - sesuai arahan: rilis berbasis paket, bukan continuous
+# deployment. Setiap eksekusi menghasilkan satu paket bernomor otomatis
+# (paket-v<run_number>-<tanggal>) dan mengarsipkan paket lama di server
+# (rollback mudah).
+
+on:
+  workflow_dispatch:
+    inputs:
+      migrate:
+        description: "Jalankan migrasi database setelah deploy?"
+        type: boolean
+        default: true
+      frontend_ref:
+        description: "Branch repo frontend (main / master)"
+        required: false
+        default: "main"
+
+concurrency:
+  group: deploy-paket
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout backend (repo ini)
+        uses: actions/checkout@v4
+
+      - name: Checkout repo frontend
+        uses: actions/checkout@v4
+        with:
+          repository: Nrabyan-17/Sistem-Informasi-Belanja-Santri-Pesantren
+          ref: ${{ inputs.frontend_ref }}
+          token: ${{ secrets.FRONTEND_PAT }}
+          path: frontend
+
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build frontend
+        run: |
+          npm ci
+          npm run build
+        working-directory: frontend
+
+      - name: Setup PHP 8.3
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, pdo_mysql, zip, gd, fileinfo, intl, curl
+          coverage: none
+
+      - name: Install dependensi backend (produksi)
+        run: composer install --no-dev --prefer-dist --no-interaction --no-progress --optimize-autoloader
+
+      - name: Rangkai paket (staging)
+        run: |
+          PAKET="paket-v${{ github.run_number }}-$(date +%Y%m%d)"
+          echo "PAKET=$PAKET" >> "$GITHUB_ENV"
+
+          mkdir -p staging
+          rsync -a \
+            --exclude '.git' \
+            --exclude '.github' \
+            --exclude 'node_modules' \
+            --exclude 'tests' \
+            --exclude 'storage' \
+            --exclude 'deploy' \
+            --exclude '.env' \
+            ./ staging/
+
+          # Skeleton storage: penting untuk instalasi pertama via extract manual.
+          # Saat update, _deploy.php melewatkan storage/** sehingga server
+          # menyimpan struktur yang sudah ada (foto santri aman).
+          mkdir -p staging/storage/app/private/santri-foto \
+                   staging/storage/app/public \
+                   staging/storage/framework/cache/data \
+                   staging/storage/framework/sessions \
+                   staging/storage/framework/views \
+                   staging/storage/framework/testing \
+                   staging/storage/logs \
+                   staging/bootstrap/cache
+          find staging/storage staging/bootstrap/cache -type d -exec touch '{}/.gitkeep' \;
+
+          cp -r frontend/dist/. staging/public/
+          cp deploy/public.htaccess.production staging/public/.htaccess
+          cp deploy/public.user.ini            staging/public/.user.ini
+          cp deploy/_deploy.php                staging/public/_deploy.php
+          cp deploy/backup-db.php              staging/backup-db.php
+          echo "$PAKET" > staging/version.txt
+
+          cd staging && zip -qr ../paket.zip . && cd ..
+
+      - name: Kirim paket ke server
+        run: |
+          curl -sf --max-time 900 -X POST \
+            "${{ secrets.DEPLOY_URL }}?migrate=${{ inputs.migrate == true && '1' || '0' }}" \
+            -H "X-Deploy-Token: ${{ secrets.DEPLOY_TOKEN }}" \
+            -F "zip=@paket.zip"
+
+      - name: Simpan salinan paket di GitHub (bahan rollback, 90 hari)
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.PAKET }}
+          path: paket.zip
+          retention-days: 90

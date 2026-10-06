@@ -1,0 +1,56 @@
+# =====================================================================
+# Konfigurasi produksi - SPA React + Laravel API dalam satu docroot.
+# Dipasang sebagai public/.htaccess oleh deploy (build-artifact.ps1 /
+# GitHub Actions). Mendukung Apache & LiteSpeed (cPanel).
+# =====================================================================
+
+<IfModule mod_negotiation.c>
+    Options -MultiViews -Indexes
+</IfModule>
+
+# "/" harus dilayani SPA (index.html), bukan route Laravel.
+DirectoryIndex index.html index.php
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # --- Paksa HTTPS (aman juga di belakang proxy/LiteSpeed) ------------
+    RewriteCond %{HTTPS} !=on
+    RewriteCond %{HTTP:X-Forwarded-Proto} !https
+    RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+
+    # --- Teruskan header penting ke PHP ---------------------------------
+    # Authorization: wajib agar token Sanctum (Bearer) tidak hilang.
+    RewriteCond %{HTTP:Authorization} .
+    RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+
+    RewriteCond %{HTTP:x-xsrf-token} .
+    RewriteRule .* - [E=HTTP_X_XSRF_TOKEN:%{HTTP:X-XSRF-Token}]
+
+    # --- Redirect trailing slash jika bukan folder ----------------------
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteCond %{REQUEST_URI} (.+)/$
+    RewriteRule ^ %1 [L,R=301]
+
+    # --- 1) Rute Laravel -> front controller ----------------------------
+    # Tambahkan prefix baru di sini jika kelak ada route web non-SPA.
+    RewriteCond %{REQUEST_URI} ^/(api|docs|foto|up|status)(/|$) [NC]
+    RewriteRule ^ index.php [L]
+
+    # --- 2) File/folder yang benar-benar ada -> dilayani langsung -------
+    # (aset SPA, Template_Data_Santri.xlsx, logo, _deploy.php, dst.)
+    RewriteCond %{REQUEST_FILENAME} -f [OR]
+    RewriteCond %{REQUEST_FILENAME} -d
+    RewriteRule ^ - [L]
+
+    # --- 3) Sisanya -> SPA fallback (react-router) ----------------------
+    RewriteRule ^ index.html [L]
+</IfModule>
+
+# index.html jangan di-cache agar browser selalu mendapat versi terbaru;
+# aset di assets/ bernama-hash dan aman untuk di-cache lama oleh browser.
+<IfModule mod_headers.c>
+    <FilesMatch "\.html$">
+        Header set Cache-Control "no-cache, must-revalidate"
+    </FilesMatch>
+</IfModule>

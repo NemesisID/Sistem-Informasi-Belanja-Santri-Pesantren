@@ -1,6 +1,6 @@
 <?php
 
-use Dedoc\Scramble\Http\Middleware\RestrictedDocsAccess;
+use App\Http\Middleware\EnsureAccessKey;
 
 return [
     /*
@@ -144,9 +144,16 @@ return [
      */
     'flatten_deep_query_parameters' => true,
 
+    /*
+     * Kunci akses untuk endpoint diagnostik (dokumentasi /docs/api, halaman
+     * /status). Diisi dari DOCS_ACCESS_KEY di .env; dibuka dengan ?key=<kunci>
+     * atau header X-Access-Key. Kosong -> hanya terbuka di lingkungan lokal.
+     */
+    'access_key' => env('DOCS_ACCESS_KEY'),
+
     'middleware' => [
         'web',
-        RestrictedDocsAccess::class,
+        EnsureAccessKey::class,
     ],
 
     'extensions' => [],

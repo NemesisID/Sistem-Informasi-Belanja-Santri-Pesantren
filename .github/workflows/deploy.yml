@@ -34,7 +34,10 @@ jobs:
         with:
           repository: Nrabyan-17/Sistem-Informasi-Belanja-Santri-Pesantren
           ref: ${{ inputs.frontend_ref }}
-          token: ${{ secrets.FRONTEND_PAT }}
+          # Repo frontend public -> token bawaan GitHub cukup. Jika kelak
+          # dibuat private, isi secret FRONTEND_PAT (baca contents) dan
+          # workflow otomatis memakainya tanpa perlu diubah.
+          token: ${{ secrets.FRONTEND_PAT || github.token }}
           path: frontend
 
       - name: Setup Node 22
